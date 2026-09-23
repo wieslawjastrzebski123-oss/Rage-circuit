@@ -112,8 +112,9 @@ export function buildCarModel(car: CarStats): CarModel {
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x202226, roughness: 0.7, metalness: 0.2 });
   const accentMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(car.accent).multiplyScalar(0.85), roughness: 0.4, metalness: 0.3 });
   const glassMat = new THREE.MeshStandardMaterial({ color: 0x0e141b, roughness: 0.06, metalness: 0.9 });
-  const headMat = new THREE.MeshBasicMaterial({ color: 0xfff4c8 });
-  const tailMat = new THREE.MeshBasicMaterial({ color: 0x801018 });
+  // lamps are pushed past 1.0 so they catch the bloom on high quality
+  const headMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff4c8).multiplyScalar(12) });
+  const tailMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xc01020).multiplyScalar(14) });
 
   // ---------- chassis
   const lift = 3.5;
@@ -299,7 +300,7 @@ export function buildCarModel(car: CarStats): CarModel {
   body.add(turret);
 
   // ---------- fx meshes
-  const flameMat = new THREE.MeshBasicMaterial({ color: 0x5fb8ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+  const flameMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x5fb8ff).multiplyScalar(10), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
   const flameGeo = new THREE.ConeGeometry(4, 22, 10, 1, true);
   flameGeo.rotateZ(Math.PI / 2); // tip now points backwards (-X)
   flameGeo.translate(-11, 0, 0);

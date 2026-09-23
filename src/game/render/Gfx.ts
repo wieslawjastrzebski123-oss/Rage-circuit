@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Storage } from '../utils/storage';
 
 export const FOG_COLOR = 0xa4b4c6;
@@ -9,6 +13,25 @@ export const FOG_COLOR = 0xa4b4c6;
 const SUN_ELEVATION = THREE.MathUtils.degToRad(38);
 const SUN_AZIMUTH = THREE.MathUtils.degToRad(-35);
 const SHADOW_RANGE = 750;
+
+/** Final colour grade, run after tone mapping: a touch of contrast and saturation plus a soft vignette. */
+const GradeShader = {
+  uniforms: { tDiffuse: { value: null }, uContrast: { value: 1.14 }, uSaturation: { value: 1.2 }, uVignette: { value: 0.32 } },
+  vertexShader: `varying vec2 vUv;
+void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse;
+uniform float uContrast, uSaturation, uVignette;
+varying vec2 vUv;
+void main() {
+  vec3 c = texture2D(tDiffuse, vUv).rgb;
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  c = mix(vec3(l), c, uSaturation);
+  c = (c - 0.5) * uContrast + 0.5;
+  vec2 d = vUv - 0.5;
+  c *= 1.0 - uVignette * smoothstep(0.25, 0.85, dot(d, d) * 2.0);
+  gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+}`,
+};
 
 /**
  * Owns the WebGL renderer, the 3D scene, the chase camera and post-processing.
@@ -23,6 +46,10 @@ export class Gfx {
   private sky: Sky;
   private sun: THREE.DirectionalLight;
   private sunDir = new THREE.Vector3();
+  /** post-processing chain (bloom + grade), used only on high quality */
+  private composer: EffectComposer;
+  private bloom: UnrealBloomPass;
+  private post = false;
   private raycaster = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -10);
@@ -53,11 +80,25 @@ export class Gfx {
     u.sunPosition.value.copy(this.sunDir);
     this.scene.add(this.sky);
 
-    // image-based lighting for reflections on paint and glass
+    // image-based lighting: paint and glass reflect the same sky the player sees
+    const envScene = new THREE.Scene();
+    const envSky = new Sky();
+    envSky.scale.setScalar(50);
+    envSky.material.uniforms = THREE.UniformsUtils.clone(u);
+    envScene.add(envSky);
+    // dark ground below the horizon so cars don't reflect sky from underneath
+    const envGround = new THREE.Mesh(new THREE.CircleGeometry(40, 24), new THREE.MeshBasicMaterial({ color: 0x2c2a28 }));
+    envGround.rotation.x = -Math.PI / 2;
+    envGround.position.y = -0.5;
+    envScene.add(envGround);
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.55;
+    this.scene.environment = pmrem.fromScene(envScene, 0.02).texture;
+    this.scene.environmentIntensity = 0.3;
     pmrem.dispose();
+    envSky.geometry.dispose();
+    envSky.material.dispose();
+    envGround.geometry.dispose();
+    (envGround.material as THREE.Material).dispose();
 
     this.scene.add(new THREE.HemisphereLight(0xbcd0ff, 0x5a5044, 0.7));
     this.sun = new THREE.DirectionalLight(0xfff0dc, 2.7);
@@ -71,6 +112,16 @@ export class Gfx {
     this.sun.shadow.normalBias = 1.2;
     this.scene.add(this.sun, this.sun.target);
 
+    // HDR multisampled target so bright lights can exceed 1.0 and bloom
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    this.composer = new EffectComposer(this.renderer, target);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    // high threshold: only lights, flames, explosions and the sun glow — not sunlit concrete
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.4, 0.45, 6);
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
+    this.composer.addPass(new ShaderPass(GradeShader));
+
     this.applySettings();
 
     window.addEventListener('resize', () => this.resize());
@@ -79,6 +130,7 @@ export class Gfx {
 
   applySettings(): void {
     const high = Storage.getSettings().quality === 'high';
+    this.post = high;
     this.renderer.setPixelRatio(high ? Math.min(window.devicePixelRatio, 1.5) : 1);
     if (this.renderer.shadowMap.enabled !== high) {
       this.renderer.shadowMap.enabled = high;
@@ -98,6 +150,8 @@ export class Gfx {
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer.setSize(w, h);
   }
 
   /** Keep the shadow-casting sun centred on the action. */
@@ -124,8 +178,9 @@ export class Gfx {
 
   render(): void {
     this.sky.position.copy(this.camera.position);
-    // rendered directly so the canvas' multisample anti-aliasing applies
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.composer.render();
+    // low quality: rendered directly, the canvas' own anti-aliasing applies
+    else this.renderer.render(this.scene, this.camera);
   }
 
   /** Mouse (client px) → point on the horizontal plane at turret height. Null if above the horizon. */
