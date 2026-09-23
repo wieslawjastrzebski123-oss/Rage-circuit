@@ -12,7 +12,7 @@ export class Cannon extends Weapon {
     const st = this.stats;
     const a = owner.aimAngle + (Math.random() - 0.5) * 2 * st.spread;
     const m = this.muzzle(owner, 24);
-    world.combat.spawnProjectile('shell', owner, m.x, m.y, a, st.projectileSpeed, st);
+    world.combat.spawnProjectile('shell', owner, m.x, m.y, a, st.projectileSpeed, st, this.damageMul(owner));
     world.effects.muzzle(m.x, m.y, a, 0xffa040, 1.4);
     // recoil
     owner.vx -= Math.cos(a) * 30;

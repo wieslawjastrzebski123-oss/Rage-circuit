@@ -33,14 +33,14 @@ export class CombatSystem {
   }
 
   // ------------------------------------------------------------------ spawning
-  spawnProjectile(kind: ProjectileKind, owner: Car, x: number, y: number, angle: number, speed: number, stats: WeaponStats): Projectile | null {
+  spawnProjectile(kind: ProjectileKind, owner: Car, x: number, y: number, angle: number, speed: number, stats: WeaponStats, dmgMul = 1): Projectile | null {
     let p = this.projectiles.find((q) => !q.active);
     if (!p) {
       if (this.projectiles.length >= MAX_PROJECTILES) return null;
-      p = new Projectile(this.world.scene);
+      p = new Projectile(this.world.gfx.root);
       this.projectiles.push(p);
     }
-    p.fire(kind, owner, x, y, angle, speed, stats);
+    p.fire(kind, owner, x, y, angle, speed, stats, dmgMul);
     return p;
   }
 
@@ -56,22 +56,28 @@ export class CombatSystem {
         m = this.mines.reduce((a, b) => (a.age > b.age ? a : b));
         m.kill();
       } else {
-        m = new Mine(this.world.scene);
+        m = new Mine(this.world.gfx.root);
         this.mines.push(m);
       }
     }
     m.drop(owner, x, y, vx, vy, stats);
   }
 
-  /** The enemy closest to a point (used for rocket lock-on and AI). */
-  findLockTarget(owner: Car, x: number, y: number, maxDist: number): Car | null {
+  /** The enemy closest to the aiming line within a cone (rocket lock-on, crosshair). */
+  findTargetInCone(owner: Car, angle: number, cone: number, range: number): Car | null {
     let best: Car | null = null;
-    let bd = maxDist * maxDist;
+    let bestScore = Infinity;
     for (const c of this.world.cars) {
       if (c === owner || !c.alive || c.isGhost) continue;
-      const d = dist2(c.x, c.y, x, y);
-      if (d < bd) {
-        bd = d;
+      const dx = c.x - owner.x;
+      const dy = c.y - owner.y;
+      const d = Math.hypot(dx, dy);
+      if (d > range || d < 1) continue;
+      const off = Math.abs(angleDiff(angle, Math.atan2(dy, dx)));
+      if (off > cone) continue;
+      const score = off * 600 + d * 0.3;
+      if (score < bestScore) {
+        bestScore = score;
         best = c;
       }
     }
@@ -223,7 +229,7 @@ export class CombatSystem {
     c.vx += dirX * k;
     c.vy += dirY * k;
     if (heavy) c.angVel += (Math.random() - 0.5) * 2.5;
-    this.applyDamage(c, p.stats.damage, p.owner, heavy ? 'shell' : 'bullet');
+    this.applyDamage(c, p.stats.damage * p.dmgMul, p.owner, heavy ? 'shell' : 'bullet');
     w.effects.impact(p.x, p.y, Math.atan2(dirY, dirX), heavy ? 0xff9a40 : 0xfff0b0, heavy);
     w.audio.hit(c, heavy);
     if (heavy && (p.owner.isPlayer || c.isPlayer)) {
@@ -310,7 +316,7 @@ export class CombatSystem {
     target.setAlive(false);
     target.respawnTimer = RESPAWN_DELAY;
     target.combat.deaths++;
-    target.nitroTime = target.shieldTime = target.empTime = 0;
+    target.overchargeTime = target.shieldTime = target.empTime = 0;
     target.angVel = (Math.random() - 0.5) * 8;
 
     let killer = source && source !== target ? source : null;

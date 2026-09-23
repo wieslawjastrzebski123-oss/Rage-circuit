@@ -1,4 +1,10 @@
-import { RACE_LAPS } from '../constants';
+import {
+  ABILITY_UNLOCK_LAP,
+  ABILITY_UNLOCK_TIME_SHORT,
+  PRIMARY_UNLOCK_TIME,
+  SECONDARY_UNLOCK_LAP,
+  SECONDARY_UNLOCK_TIME_SHORT,
+} from '../constants';
 import type { Car } from '../entities/Car';
 import { clamp, formatTime } from '../utils/math';
 import { CheckpointManager } from './CheckpointManager';
@@ -25,13 +31,12 @@ export class RaceManager {
   onPlayerFinish: (() => void) | null = null;
   private wrongWayShown = false;
 
-  constructor(world: World) {
-    this.world = world;
-    this.checkpoints = new CheckpointManager(world.track);
-  }
+  readonly laps: number;
 
-  get laps(): number {
-    return RACE_LAPS;
+  constructor(world: World, laps: number) {
+    this.world = world;
+    this.laps = laps;
+    this.checkpoints = new CheckpointManager(world.track);
   }
 
   /** Line the cars up on the grid in the given order. */
@@ -83,6 +88,7 @@ export class RaceManager {
       this.checkpoints.update(car, dt, this.passed);
       for (const k of this.passed) this.onCheckpoint(car, k);
     }
+    this.updateUnlocks();
     this.updateStandings();
     this.updateRubberBand();
 
@@ -108,7 +114,7 @@ export class RaceManager {
     r.lapTimes.push(lapTime);
     r.lapStart = this.raceTime;
     r.lapsDone = k / n;
-    if (r.lapsDone >= RACE_LAPS) {
+    if (r.lapsDone >= this.laps) {
       r.finished = true;
       r.finishTime = this.raceTime;
       r.finishOrder = ++this.finishCount;
@@ -125,8 +131,30 @@ export class RaceManager {
       const isBest = lapTime <= best + 1e-6 && r.lapTimes.length > 1;
       w.hud?.lapTime(formatTime(lapTime * 1000), isBest);
       w.audio.lap();
-      if (r.lapsDone === RACE_LAPS - 1) w.hud?.announce('FINAL LAP', '#ff2d6f');
+      if (r.lapsDone === this.laps - 1) w.hud?.announce('FINAL LAP', '#ff2d6f');
       else w.hud?.announce(`LAP ${r.lapsDone + 1}`, '#00e5ff');
+    }
+  }
+
+  /** Primary comes online shortly after GO, secondary and ability on later laps. */
+  private updateUnlocks(): void {
+    const t = this.raceTime;
+    const primary = t >= PRIMARY_UNLOCK_TIME;
+    const short = this.laps < ABILITY_UNLOCK_LAP;
+    for (const c of this.world.cars) {
+      const lap = c.race.lapsDone + 1;
+      const secondary = lap >= SECONDARY_UNLOCK_LAP || (short && t >= SECONDARY_UNLOCK_TIME_SHORT) || c.race.finished;
+      const ability = lap >= ABILITY_UNLOCK_LAP || (short && t >= ABILITY_UNLOCK_TIME_SHORT) || c.race.finished;
+      if (c.isPlayer && !c.race.finished) {
+        const hud = this.world.hud;
+        if (primary && !c.unlockPrimary) hud?.announce(`WEAPONS ONLINE`, '#7dff4a', 1300);
+        // shown in the feed so it doesn't hide the lap-time message
+        if (secondary && !c.unlockSecondary) hud?.feed(`🔓 ${c.secondary.name} UNLOCKED  [RMB / Q]`);
+        if (ability && !c.unlockAbility) hud?.feed(`🔓 ${c.abilityName} UNLOCKED  [SHIFT]`);
+      }
+      c.unlockPrimary = primary;
+      c.unlockSecondary = secondary;
+      c.unlockAbility = ability;
     }
   }
 
@@ -153,7 +181,7 @@ export class RaceManager {
   }
 
   currentLap(car: Car): number {
-    return Math.min(RACE_LAPS, car.race.lapsDone + 1);
+    return Math.min(this.laps, car.race.lapsDone + 1);
   }
 }
 

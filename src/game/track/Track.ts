@@ -318,8 +318,9 @@ export class Track {
         }
       }
     }
-    // stay on the piece continuous with the previous position unless we are clearly off it
-    if (near && nearPen <= 40) {
+    // prefer the piece continuous with the previous position, but only while the car is
+    // actually on it – otherwise trust geometry (e.g. cutting a junction corner)
+    if (near && nearPen <= 5 && nearPen <= bestPen + 30) {
       best = near;
       bestPen = nearPen;
       bt = nt;

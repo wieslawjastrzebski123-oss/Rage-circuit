@@ -33,7 +33,7 @@ export class CollisionSystem {
         const a = o.angle ?? 0;
         this.containers.push({ cx: o.x, cy: o.y, hw: (o.w ?? 100) / 2, hh: (o.h ?? 40) / 2, cos: Math.cos(a), sin: Math.sin(a) });
       } else {
-        this.barrels.push(new Barrel(world.scene, o.x, o.y, o.kind === 'explosive'));
+        this.barrels.push(new Barrel(world.gfx.root, o.x, o.y, o.kind === 'explosive'));
       }
     }
   }
@@ -52,7 +52,9 @@ export class CollisionSystem {
 
   // ------------------------------------------------------------------ walls
   private carVsWalls(car: Car): void {
-    const h = this.world.track.query(car.x, car.y, car.race.s, this.hit);
+    // purely geometric: the road is the union of all pieces, so no progress hint here
+    // (a stale hint once produced invisible walls at the shortcut exit)
+    const h = this.world.track.query(car.x, car.y, undefined, this.hit);
     if (!h) return;
     const limit = h.seg.hw - car.radius + WALL_MARGIN;
     if (h.dist <= limit) return;

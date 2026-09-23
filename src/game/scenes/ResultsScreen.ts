@@ -1,24 +1,19 @@
-import Phaser from 'phaser';
 import { CARS } from '../data/cars';
 import { AudioManager } from '../systems/AudioManager';
 import { button, h, hex, layer } from '../ui/dom';
 import { formatTime } from '../utils/math';
-import type { RaceResults } from './RaceScene';
+import type { RaceResults } from './RaceSession';
+import type { App } from '../App';
 
 const ORD = ['', '1ST', '2ND', '3RD', '4TH'];
 
 /** RACE FINISHED overlay shown on top of the (still running) race. */
-export class ResultsScene extends Phaser.Scene {
-  private root: HTMLElement | null = null;
+export class ResultsScreen {
+  private root: HTMLElement;
 
-  constructor() {
-    super('ResultsScene');
-  }
-
-  create(res: RaceResults): void {
+  constructor(app: App, res: RaceResults) {
     const root = layer('menu results');
     this.root = root;
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.root?.remove());
 
     const panel = h('div', 'panel wide', undefined, root);
     h('h1', 'screen-title', 'RACE FINISHED', panel);
@@ -27,7 +22,7 @@ export class ResultsScene extends Phaser.Scene {
     const grid = h('div', 'result-grid', undefined, panel);
     const stat = (label: string, value: string, badge = '') => h('div', 'rstat', `<span>${label}</span><b>${value}</b>${badge ? `<em>${badge}</em>` : ''}`, grid);
     stat('POSITION', `${res.position} / ${res.standings.length}`);
-    stat('RACE TIME', formatTime(res.raceTime * 1000), res.newBestRace ? 'NEW RECORD' : '');
+    stat(`RACE TIME (${res.laps} ${res.laps === 1 ? 'LAP' : 'LAPS'})`, formatTime(res.raceTime * 1000), res.newBestRace ? 'NEW RECORD' : '');
     stat('BEST LAP', formatTime(res.bestLap * 1000), res.newBestLap ? 'NEW RECORD' : '');
     stat('KILLS', String(res.kills));
     stat('DEATHS', String(res.deaths));
@@ -55,17 +50,19 @@ export class ResultsScene extends Phaser.Scene {
     const click = () => AudioManager.instance.click();
     button('RESTART', nav, () => {
       click();
-      this.scene.start('RaceScene', { demo: false, loadout: res.loadout });
+      app.startRace(res.loadout);
     }, 'primary');
     button('CHANGE CAR', nav, () => {
       click();
-      this.scene.stop('RaceScene');
-      this.scene.start('GarageScene');
+      app.showGarage();
     });
     button('MAIN MENU', nav, () => {
       click();
-      this.scene.stop('RaceScene');
-      this.scene.start('MenuScene');
+      app.showMenu();
     });
+  }
+
+  destroy(): void {
+    this.root.remove();
   }
 }

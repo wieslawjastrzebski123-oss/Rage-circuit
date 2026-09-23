@@ -1,359 +1,515 @@
-import Phaser from 'phaser';
-import { Depth } from '../constants';
+import * as THREE from 'three';
 import type { Car } from '../entities/Car';
-import { CAR_TEX_SCALE } from '../Textures';
+import type { Gfx } from '../render/Gfx';
+import { Particles } from '../render/Particles';
+import { textures } from '../render/Textures';
+import { rand } from '../utils/math';
 import { Storage } from '../utils/storage';
 
-type Emitter = Phaser.GameObjects.Particles.ParticleEmitter;
-
-const SKID_POOL = 1400;
+const SKID_POOL = 1800;
 const SCORCH_POOL = 40;
 const RING_POOL = 24;
 const TEXT_POOL = 24;
 const GHOST_POOL = 16;
+const LIGHTS = 3;
+
+interface Ring {
+  mesh: THREE.Mesh;
+  mat: THREE.MeshBasicMaterial;
+  t: number;
+  dur: number;
+  radius: number;
+}
+
+interface FloatText {
+  el: HTMLDivElement;
+  x: number;
+  y: number;
+  z: number;
+  t: number;
+}
+
+interface Ghost {
+  mesh: THREE.Mesh;
+  mat: THREE.MeshBasicMaterial;
+  t: number;
+}
+
+interface Flash {
+  light: THREE.PointLight;
+  t: number;
+  dur: number;
+  peak: number;
+}
 
 /**
- * All the juice: particles, skid marks, shockwaves, floating numbers,
- * camera shake and hit-stop. Everything is pooled.
+ * All the juice in 3D: particles, skid marks, shockwaves, flashes, floating
+ * numbers, camera shake and hit-stop. Everything is pooled.
  */
 export class Effects {
-  private scene: Phaser.Scene;
-  /** remaining hit-stop in ms – read and consumed by the race scene */
+  private gfx: Gfx;
+  /** remaining hit-stop in ms – consumed by the race loop */
   hitStop = 0;
+  /** camera shake state (world units) read by the camera rig */
+  shakeAmp = 0;
+  private shakeTime = 0;
+  private shakeDur = 1;
+  /** world position the camera is looking at (for distance-scaled shakes) */
+  focusX = 0;
+  focusY = 0;
 
-  private smoke: Emitter;
-  private driftPuff: Emitter;
-  private sparks: Emitter;
-  private fire: Emitter;
-  private debris: Emitter;
-  private flashSmall: Emitter;
-  private flashBig: Emitter;
-  private trail: Emitter;
-  private electric: Emitter;
-
-  private skids: Phaser.GameObjects.Image[] = [];
+  private add: Particles;
+  private norm: Particles;
+  private skids: THREE.InstancedMesh;
   private skidIdx = 0;
-  private scorches: Phaser.GameObjects.Image[] = [];
+  private scorches: THREE.InstancedMesh;
   private scorchIdx = 0;
-  private rings: Phaser.GameObjects.Image[] = [];
+  private rings: Ring[] = [];
   private ringIdx = 0;
-  private texts: Phaser.GameObjects.Text[] = [];
+  private texts: FloatText[] = [];
   private textIdx = 0;
-  private ghosts: Phaser.GameObjects.Image[] = [];
+  private textLayer: HTMLDivElement;
+  private ghosts: Ghost[] = [];
   private ghostIdx = 0;
+  private flashes: Flash[] = [];
+  private flashIdx = 0;
+  private m4 = new THREE.Matrix4();
+  private q = new THREE.Quaternion();
+  private v = new THREE.Vector3();
+  private sc = new THREE.Vector3();
+  private up = new THREE.Vector3(0, 1, 0);
+  private hidden = new THREE.Matrix4().makeScale(0, 0, 0);
 
-  constructor(scene: Phaser.Scene) {
-    this.scene = scene;
-    const add = (tex: string, cfg: Phaser.Types.GameObjects.Particles.ParticleEmitterConfig, depth: number) =>
-      scene.add.particles(0, 0, tex, { emitting: false, ...cfg }).setDepth(depth);
+  constructor(gfx: Gfx) {
+    this.gfx = gfx;
+    const root = gfx.root;
+    const tx = textures();
+    this.add = new Particles(1600, tx.soft, true);
+    this.norm = new Particles(900, tx.smoke, false);
+    this.norm.points.renderOrder = 1;
+    this.add.points.renderOrder = 2;
+    root.add(this.norm.points, this.add.points);
 
-    this.smoke = add(
-      'smoke',
-      {
-        lifespan: { min: 700, max: 1300 },
-        speed: { min: 10, max: 60 },
-        scale: { start: 0.5, end: 2.2 },
-        alpha: { start: 0.55, end: 0 },
-        tint: 0x55585f,
-        rotate: { min: 0, max: 360 },
-      },
-      Depth.Effects,
-    );
-    this.driftPuff = add(
-      'smoke',
-      {
-        lifespan: { min: 380, max: 650 },
-        speed: { min: 5, max: 35 },
-        scale: { start: 0.35, end: 1.25 },
-        alpha: { start: 0.45, end: 0 },
-      },
-      Depth.CarFx,
-    );
-    this.sparks = add(
-      'spark',
-      {
-        lifespan: { min: 140, max: 360 },
-        speed: { min: 220, max: 620 },
-        scale: { start: 1.1, end: 0.2 },
-        alpha: { start: 1, end: 0 },
-        blendMode: Phaser.BlendModes.ADD,
-        rotate: {
-          onEmit: (p?: Phaser.GameObjects.Particles.Particle) => (p ? Phaser.Math.RadToDeg(Math.atan2(p.velocityY, p.velocityX)) : 0),
-        },
-      },
-      Depth.Effects + 1,
-    );
-    this.fire = add(
-      'glow',
-      {
-        lifespan: { min: 280, max: 620 },
-        speed: { min: 40, max: 260 },
-        scale: { start: 1.3, end: 0.2 },
-        alpha: { start: 1, end: 0 },
-        color: [0xfff4c0, 0xffb040, 0xff4a10, 0x401008],
-        colorEase: 'Quad.easeOut',
-        blendMode: Phaser.BlendModes.ADD,
-      },
-      Depth.Effects + 2,
-    );
-    this.debris = add(
-      'debris',
-      {
-        lifespan: { min: 500, max: 1000 },
-        speed: { min: 180, max: 480 },
-        scale: { start: 1.2, end: 0.4 },
-        rotate: { min: 0, max: 360 },
-        tint: [0x3a3f4a, 0x22252c, 0x8a5a30],
-        alpha: { start: 1, end: 0.2 },
-      },
-      Depth.Effects,
-    );
-    this.flashSmall = add(
-      'glow',
-      { lifespan: 70, scale: { start: 0.7, end: 0.2 }, alpha: { start: 1, end: 0 }, blendMode: Phaser.BlendModes.ADD },
-      Depth.Effects + 3,
-    );
-    this.flashBig = add(
-      'glow',
-      { lifespan: 180, scale: { start: 3.5, end: 1 }, alpha: { start: 0.9, end: 0 }, blendMode: Phaser.BlendModes.ADD },
-      Depth.Effects + 3,
-    );
-    this.trail = add(
-      'dot',
-      { lifespan: 260, scale: { start: 1.3, end: 0 }, alpha: { start: 0.8, end: 0 }, blendMode: Phaser.BlendModes.ADD },
-      Depth.CarFx,
-    );
-    this.electric = add(
-      'spark',
-      {
-        lifespan: { min: 100, max: 260 },
-        speed: { min: 80, max: 320 },
-        scale: { start: 1.2, end: 0.3 },
-        tint: [0x00e5ff, 0xb8f6ff, 0x5fb8ff],
-        blendMode: Phaser.BlendModes.ADD,
-        rotate: { min: 0, max: 360 },
-      },
-      Depth.Effects + 1,
-    );
+    const skidMat = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    const skidGeo = new THREE.PlaneGeometry(8, 3.4);
+    skidGeo.rotateX(-Math.PI / 2);
+    this.skids = new THREE.InstancedMesh(skidGeo, skidMat, SKID_POOL);
+    this.skids.frustumCulled = false;
+    for (let i = 0; i < SKID_POOL; i++) this.skids.setMatrixAt(i, this.hidden);
+    this.skids.position.y = 0.25;
+    root.add(this.skids);
 
-    for (let i = 0; i < SKID_POOL; i++) {
-      this.skids.push(scene.add.image(-9999, -9999, 'skid').setDepth(Depth.Skid).setScale(1.1, 0.55).setTint(0x000000).setVisible(false));
-    }
-    for (let i = 0; i < SCORCH_POOL; i++) {
-      this.scorches.push(scene.add.image(-9999, -9999, 'smoke').setDepth(Depth.Skid).setTint(0x000000).setVisible(false));
-    }
+    const scorchMat = new THREE.MeshBasicMaterial({
+      map: tx.smoke,
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+    });
+    const scorchGeo = new THREE.PlaneGeometry(90, 90);
+    scorchGeo.rotateX(-Math.PI / 2);
+    this.scorches = new THREE.InstancedMesh(scorchGeo, scorchMat, SCORCH_POOL);
+    this.scorches.frustumCulled = false;
+    for (let i = 0; i < SCORCH_POOL; i++) this.scorches.setMatrixAt(i, this.hidden);
+    this.scorches.position.y = 0.3;
+    root.add(this.scorches);
+
+    const ringGeo = new THREE.PlaneGeometry(120, 120);
+    ringGeo.rotateX(-Math.PI / 2);
     for (let i = 0; i < RING_POOL; i++) {
-      this.rings.push(scene.add.image(0, 0, 'ring').setDepth(Depth.Effects).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
+      const mat = new THREE.MeshBasicMaterial({ map: tx.ring, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+      const mesh = new THREE.Mesh(ringGeo, mat);
+      mesh.visible = false;
+      mesh.position.y = 2;
+      root.add(mesh);
+      this.rings.push({ mesh, mat, t: 1, dur: 1, radius: 1 });
     }
+    const ghostGeo = new THREE.BoxGeometry(52, 12, 26);
     for (let i = 0; i < GHOST_POOL; i++) {
-      this.ghosts.push(scene.add.image(0, 0, 'car_viper').setDepth(Depth.CarFx).setBlendMode(Phaser.BlendModes.ADD).setVisible(false));
+      const mat = new THREE.MeshBasicMaterial({ color: 0xb04dff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+      const mesh = new THREE.Mesh(ghostGeo, mat);
+      mesh.visible = false;
+      root.add(mesh);
+      this.ghosts.push({ mesh, mat, t: 1 });
     }
+    for (let i = 0; i < LIGHTS; i++) {
+      const light = new THREE.PointLight(0xffa040, 0, 520, 1.1);
+      light.position.y = 40;
+      root.add(light);
+      this.flashes.push({ light, t: 1, dur: 1, peak: 0 });
+    }
+    this.textLayer = document.createElement('div');
+    this.textLayer.className = 'float-layer';
+    document.getElementById('ui')!.appendChild(this.textLayer);
   }
 
   // --------------------------------------------------------------- camera
   shake(intensity: number, duration: number): void {
     const k = Storage.getSettings().cameraShake;
     if (k <= 0) return;
-    const cam = this.scene.cameras.main;
-    // don't let a small shake override a bigger one in progress
-    const cur = cam.shakeEffect;
-    if (cur.isRunning && cur.intensity.x > intensity * k) return;
-    cam.shake(duration, intensity * k, true);
+    const amp = intensity * 700 * k;
+    if (amp < this.shakeAmp * (1 - this.shakeTime / this.shakeDur)) return;
+    this.shakeAmp = amp;
+    this.shakeTime = 0;
+    this.shakeDur = duration / 1000;
   }
 
-  /** Shake scaled by distance from the camera centre. */
+  /** Shake scaled by distance from the camera focus. */
   shakeAt(x: number, y: number, intensity: number, duration: number): void {
-    const v = this.scene.cameras.main.worldView;
-    const d = Math.hypot(x - v.centerX, y - v.centerY);
-    const f = Phaser.Math.Clamp(1 - d / 1100, 0, 1);
+    const d = Math.hypot(x - this.focusX, y - this.focusY);
+    const f = Math.max(0, 1 - d / 1000);
     if (f > 0.05) this.shake(intensity * f, duration);
+  }
+
+  /** Current shake offset magnitude (decays over the duration). */
+  get shakeNow(): number {
+    return this.shakeTime < this.shakeDur ? this.shakeAmp * (1 - this.shakeTime / this.shakeDur) : 0;
   }
 
   freeze(ms: number): void {
     this.hitStop = Math.max(this.hitStop, ms);
   }
 
+  private flash(x: number, y: number, color: number, peak: number, dur: number): void {
+    const f = this.flashes[this.flashIdx];
+    this.flashIdx = (this.flashIdx + 1) % LIGHTS;
+    f.light.position.set(x, 30, y);
+    f.light.color.setHex(color);
+    f.t = 0;
+    f.dur = dur;
+    f.peak = peak;
+  }
+
   // --------------------------------------------------------------- driving
   skid(x: number, y: number, angle: number, alpha: number): void {
-    const s = this.skids[this.skidIdx];
+    this.q.setFromAxisAngle(this.up, -angle);
+    this.sc.set(1, 1, alpha > 0.35 ? 1.1 : 0.9);
+    this.m4.compose(this.v.set(x, 0, y), this.q, this.sc);
+    this.skids.setMatrixAt(this.skidIdx, this.m4);
     this.skidIdx = (this.skidIdx + 1) % SKID_POOL;
-    s.setPosition(x, y).setRotation(angle).setAlpha(alpha).setVisible(true);
+    this.skids.instanceMatrix.needsUpdate = true;
   }
 
   driftSmoke(x: number, y: number, tint: number, charged: boolean): void {
-    this.driftPuff.setParticleTint(tint);
-    this.driftPuff.emitParticleAt(x + Phaser.Math.Between(-6, 6), y + Phaser.Math.Between(-6, 6), 1);
-    if (charged && Math.random() < 0.5) {
-      this.sparks.setParticleTint(tint);
-      this.sparks.setEmitterAngle({ min: 0, max: 360 });
-      this.sparks.explode(1, x, y);
+    this.norm.emit({
+      x: x + rand(-4, 4),
+      y: 3,
+      z: y + rand(-4, 4),
+      vx: rand(-15, 15),
+      vy: rand(12, 30),
+      vz: rand(-15, 15),
+      life: rand(0.5, 0.9),
+      size0: 14,
+      size1: 46,
+      alpha0: 0.55,
+      alpha1: 0,
+      color0: 0xc8ccd6,
+      drag: 1.5,
+    });
+    if (charged) {
+      this.add.emit({
+        x,
+        y: 2,
+        z: y,
+        vx: rand(-120, 120),
+        vy: rand(60, 160),
+        vz: rand(-120, 120),
+        life: rand(0.15, 0.35),
+        size0: 5,
+        size1: 1,
+        color0: tint,
+        gravity: -500,
+      });
+      this.add.emit({ x, y: 2, z: y, life: 0.12, size0: 16, size1: 4, alpha0: 0.8, color0: tint });
     }
   }
 
   boostTrail(x: number, y: number, color: number): void {
-    this.trail.setParticleTint(color);
-    this.trail.emitParticleAt(x, y, 1);
+    this.add.emit({ x, y: 7, z: y, vy: 4, life: 0.28, size0: 14, size1: 0, alpha0: 0.9, color0: 0xffffff, color1: color });
   }
 
   driftRelease(car: Car, color: number, level: number): void {
     const bx = car.x - Math.cos(car.heading) * 22;
     const by = car.y - Math.sin(car.heading) * 22;
     this.shockwave(bx, by, 40 + level * 18, color, 260);
-    this.sparks.setParticleTint(color);
-    this.sparks.setEmitterAngle({ min: 0, max: 360 });
-    this.sparks.explode(6 + level * 4, bx, by);
+    for (let i = 0; i < 6 + level * 5; i++) {
+      this.add.emit({ x: bx, y: 5, z: by, vx: rand(-260, 260), vy: rand(40, 220), vz: rand(-260, 260), life: rand(0.2, 0.45), size0: 6, size1: 1, color0: color, gravity: -600 });
+    }
     if (car.isPlayer) {
       const labels = ['', 'BOOST', 'SUPER BOOST', 'ULTRA BOOST', 'MAX BOOST!'];
-      this.floatText(car.x, car.y - 36, labels[level], color, 16 + level * 2);
+      this.floatText(car.x, car.y, labels[level], color, 16 + level * 2);
     }
   }
 
   wallSparks(x: number, y: number, nx: number, ny: number, strength: number): void {
-    const a = Phaser.Math.RadToDeg(Math.atan2(-ny, -nx));
-    this.sparks.setParticleTint(0xffc860);
-    this.sparks.setEmitterAngle({ min: a - 70, max: a + 70 });
-    this.sparks.explode(Math.min(18, 3 + Math.floor(strength / 40)), x, y);
+    const n = Math.min(18, 3 + Math.floor(strength / 40));
+    for (let i = 0; i < n; i++) {
+      const s = rand(150, 420);
+      this.add.emit({
+        x,
+        y: 6,
+        z: y,
+        vx: -nx * s + rand(-150, 150),
+        vy: rand(40, 220),
+        vz: -ny * s + rand(-150, 150),
+        life: rand(0.15, 0.4),
+        size0: 5,
+        size1: 1,
+        color0: 0xffe0a0,
+        color1: 0xff7020,
+        gravity: -700,
+      });
+    }
   }
 
   // --------------------------------------------------------------- combat
   muzzle(x: number, y: number, angle: number, color: number, size: number): void {
-    const em = size > 1 ? this.flashBig : this.flashSmall;
-    em.setParticleTint(color);
-    em.emitParticleAt(x, y, 1);
-    const a = Phaser.Math.RadToDeg(angle);
-    this.sparks.setParticleTint(color);
-    this.sparks.setEmitterAngle({ min: a - 18, max: a + 18 });
-    this.sparks.explode(size > 1 ? 5 : 1, x, y);
+    const h = 20;
+    this.add.emit({ x, y: h, z: y, life: size > 1 ? 0.12 : 0.06, size0: size > 1 ? 44 : 18, size1: 6, color0: 0xffffff, color1: color });
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    const n = size > 1 ? 6 : 1;
+    for (let i = 0; i < n; i++) {
+      const sp = rand(200, 500);
+      this.add.emit({ x, y: h, z: y, vx: c * sp + rand(-60, 60), vy: rand(0, 60), vz: s * sp + rand(-60, 60), life: rand(0.06, 0.16), size0: 4, size1: 1, color0: color });
+    }
     if (size > 1) {
-      this.smoke.setParticleTint(0x6a6d75);
-      this.smoke.emitParticleAt(x, y, 2);
+      this.norm.emit({ x, y: h, z: y, vx: c * 60, vy: 20, vz: s * 60, life: 0.6, size0: 16, size1: 40, alpha0: 0.45, color0: 0x6a6d75, drag: 2 });
+      this.flash(x, y, color, 3, 0.1);
     }
   }
 
   impact(x: number, y: number, angle: number, color: number, big: boolean): void {
-    const a = Phaser.Math.RadToDeg(angle + Math.PI);
-    this.sparks.setParticleTint(color);
-    this.sparks.setEmitterAngle({ min: a - 60, max: a + 60 });
-    this.sparks.explode(big ? 12 : 4, x, y);
-    this.flashSmall.setParticleTint(color);
-    this.flashSmall.emitParticleAt(x, y, 1);
+    const c = Math.cos(angle + Math.PI);
+    const s = Math.sin(angle + Math.PI);
+    const n = big ? 12 : 4;
+    for (let i = 0; i < n; i++) {
+      const sp = rand(120, 380);
+      this.add.emit({ x, y: 10, z: y, vx: c * sp + rand(-160, 160), vy: rand(20, 200), vz: s * sp + rand(-160, 160), life: rand(0.12, 0.35), size0: 5, size1: 1, color0: color, gravity: -600 });
+    }
+    this.add.emit({ x, y: 10, z: y, life: 0.08, size0: big ? 36 : 16, size1: 4, color0: color });
     if (big) {
-      this.fire.explode(5, x, y);
-      this.debris.setEmitterAngle({ min: 0, max: 360 });
-      this.debris.explode(4, x, y);
+      for (let i = 0; i < 5; i++) this.fireball(x, y, 0.6);
+      for (let i = 0; i < 4; i++) this.debris(x, y);
+      this.flash(x, y, 0xffa040, 2.5, 0.15);
     }
   }
 
+  private fireball(x: number, y: number, size: number): void {
+    const a = rand(0, Math.PI * 2);
+    const sp = rand(30, 200) * size;
+    this.add.emit({
+      x: x + rand(-8, 8),
+      y: rand(6, 18),
+      z: y + rand(-8, 8),
+      vx: Math.cos(a) * sp,
+      vy: rand(40, 160) * size,
+      vz: Math.sin(a) * sp,
+      life: rand(0.3, 0.65),
+      size0: rand(30, 55) * size,
+      size1: 8,
+      alpha0: 1,
+      color0: 0xfff0b0,
+      color1: 0xff3a10,
+      drag: 2.5,
+    });
+  }
+
+  private debris(x: number, y: number): void {
+    const a = rand(0, Math.PI * 2);
+    const sp = rand(150, 420);
+    this.norm.emit({ x, y: 10, z: y, vx: Math.cos(a) * sp, vy: rand(150, 380), vz: Math.sin(a) * sp, life: rand(0.6, 1.1), size0: 6, size1: 4, alpha0: 1, alpha1: 0.6, color0: 0x2a2d35, gravity: -900 });
+  }
+
   explosion(x: number, y: number, size: number): void {
-    this.flashBig.setParticleTint(0xffe0a0);
-    this.flashBig.emitParticleAt(x, y, 2);
-    this.fire.explode(Math.round(16 * size), x, y);
-    this.smoke.setParticleTint(0x3a3c42);
-    this.smoke.explode(Math.round(10 * size), x, y);
-    this.debris.setEmitterAngle({ min: 0, max: 360 });
-    this.debris.explode(Math.round(12 * size), x, y);
-    this.sparks.setParticleTint(0xffb040);
-    this.sparks.setEmitterAngle({ min: 0, max: 360 });
-    this.sparks.explode(Math.round(16 * size), x, y);
+    const n = Math.round(16 * size);
+    for (let i = 0; i < n; i++) this.fireball(x, y, size);
+    for (let i = 0; i < Math.round(12 * size); i++) {
+      this.norm.emit({
+        x: x + rand(-15, 15),
+        y: rand(8, 25),
+        z: y + rand(-15, 15),
+        vx: rand(-60, 60),
+        vy: rand(30, 90),
+        vz: rand(-60, 60),
+        life: rand(1.0, 1.8),
+        size0: rand(30, 50) * size,
+        size1: rand(90, 140) * size,
+        alpha0: 0.6,
+        alpha1: 0,
+        color0: 0x2e3036,
+        drag: 1.2,
+      });
+    }
+    for (let i = 0; i < Math.round(12 * size); i++) this.debris(x, y);
+    for (let i = 0; i < Math.round(16 * size); i++) {
+      this.add.emit({ x, y: 10, z: y, vx: rand(-420, 420), vy: rand(60, 360), vz: rand(-420, 420), life: rand(0.2, 0.5), size0: 6, size1: 1, color0: 0xffc060, gravity: -700 });
+    }
     this.shockwave(x, y, 90 * size, 0xffa040, 320);
-    const sc = this.scorches[this.scorchIdx];
+    this.flash(x, y, 0xff9a40, 6 * size, 0.35);
+    this.q.setFromAxisAngle(this.up, rand(0, 6));
+    const s = 1.1 * size;
+    this.m4.compose(this.v.set(x, 0, y), this.q, this.sc.set(s, 1, s));
+    this.scorches.setMatrixAt(this.scorchIdx, this.m4);
     this.scorchIdx = (this.scorchIdx + 1) % SCORCH_POOL;
-    sc.setPosition(x, y).setScale(1.4 * size).setAlpha(0.6).setRotation(Math.random() * 6).setVisible(true);
+    this.scorches.instanceMatrix.needsUpdate = true;
   }
 
   shockwave(x: number, y: number, radius: number, color: number, duration = 300): void {
     const r = this.rings[this.ringIdx];
     this.ringIdx = (this.ringIdx + 1) % RING_POOL;
-    this.scene.tweens.killTweensOf(r);
-    r.setPosition(x, y).setTint(color).setAlpha(0.9).setScale(0.1).setVisible(true);
-    this.scene.tweens.add({
-      targets: r,
-      scale: radius / 60,
-      alpha: 0,
-      duration,
-      ease: 'Cubic.easeOut',
-      onComplete: () => r.setVisible(false),
-    });
+    r.mesh.position.set(x, 2, y);
+    r.mat.color.setHex(color);
+    r.t = 0;
+    r.dur = duration / 1000;
+    r.radius = radius;
+    r.mesh.visible = true;
   }
 
   empBurst(x: number, y: number): void {
-    this.electric.setEmitterAngle({ min: 0, max: 360 });
-    this.electric.explode(40, x, y);
-    this.flashBig.setParticleTint(0x00e5ff);
-    this.flashBig.emitParticleAt(x, y, 1);
+    for (let i = 0; i < 50; i++) {
+      const a = rand(0, Math.PI * 2);
+      const sp = rand(150, 520);
+      this.add.emit({ x, y: 8, z: y, vx: Math.cos(a) * sp, vy: rand(-20, 120), vz: Math.sin(a) * sp, life: rand(0.15, 0.4), size0: 7, size1: 1, color0: 0xb8f6ff, color1: 0x00a0ff });
+    }
+    this.flash(x, y, 0x00e5ff, 5, 0.3);
   }
 
   empHit(x: number, y: number): void {
-    this.electric.explode(14, x, y);
+    for (let i = 0; i < 16; i++) {
+      this.add.emit({ x: x + rand(-15, 15), y: rand(4, 20), z: y + rand(-15, 15), vx: rand(-80, 80), vy: rand(-40, 80), vz: rand(-80, 80), life: rand(0.1, 0.3), size0: 6, size1: 1, color0: 0x00e5ff });
+    }
   }
 
-  blink(fromX: number, fromY: number, toX: number, toY: number, heading: number, carId: string): void {
+  blink(fromX: number, fromY: number, toX: number, toY: number, heading: number): void {
     const steps = 5;
     for (let i = 0; i < steps; i++) {
       const t = i / steps;
       const g = this.ghosts[this.ghostIdx];
       this.ghostIdx = (this.ghostIdx + 1) % GHOST_POOL;
-      this.scene.tweens.killTweensOf(g);
-      g.setTexture(`car_${carId}`)
-        .setPosition(fromX + (toX - fromX) * t, fromY + (toY - fromY) * t)
-        .setRotation(heading)
-        .setScale(CAR_TEX_SCALE)
-        .setTint(0xb04dff)
-        .setAlpha(0.15 + 0.5 * t)
-        .setVisible(true);
-      this.scene.tweens.add({ targets: g, alpha: 0, duration: 380, onComplete: () => g.setVisible(false) });
+      g.mesh.position.set(fromX + (toX - fromX) * t, 9, fromY + (toY - fromY) * t);
+      g.mesh.rotation.y = -heading;
+      g.t = -t * 0.08;
+      g.mesh.visible = true;
     }
-    this.electric.explode(16, fromX, fromY);
-    this.electric.explode(16, toX, toY);
+    this.empHit(fromX, fromY);
+    this.empHit(toX, toY);
     this.shockwave(toX, toY, 55, 0xb04dff, 250);
+    this.flash(toX, toY, 0xb04dff, 3, 0.2);
   }
 
   pickup(x: number, y: number, color: number): void {
     this.shockwave(x, y, 60, color, 300);
-    this.sparks.setParticleTint(color);
-    this.sparks.setEmitterAngle({ min: 0, max: 360 });
-    this.sparks.explode(12, x, y);
+    for (let i = 0; i < 14; i++) {
+      this.add.emit({ x, y: 12, z: y, vx: rand(-200, 200), vy: rand(50, 250), vz: rand(-200, 200), life: rand(0.2, 0.45), size0: 7, size1: 1, color0: color, gravity: -500 });
+    }
+  }
+
+  /** Slow industrial smoke drifting from a chimney top. */
+  chimneySmoke(x: number, y: number, h: number): void {
+    this.norm.emit({
+      x: x + rand(-6, 6),
+      y: h + 5,
+      z: y + rand(-6, 6),
+      vx: 18 + rand(-6, 6),
+      vy: rand(25, 40),
+      vz: 8 + rand(-6, 6),
+      life: rand(5, 7),
+      size0: 50,
+      size1: 220,
+      alpha0: 0.45,
+      alpha1: 0,
+      color0: 0x8d9096,
+      color1: 0xb8bcc2,
+      drag: 0.1,
+    });
   }
 
   // --------------------------------------------------------------- text
   floatText(x: number, y: number, text: string, color: number, size = 16): void {
-    let t = this.texts[this.textIdx];
-    if (!t) {
-      t = this.scene.add
-        .text(0, 0, '', {
-          fontFamily: 'Orbitron, Rajdhani, sans-serif',
-          fontSize: '16px',
-          fontStyle: '700',
-          color: '#ffffff',
-          stroke: '#000000',
-          strokeThickness: 4,
-        })
-        .setOrigin(0.5)
-        .setDepth(Depth.Labels + 1);
-      this.texts[this.textIdx] = t;
+    let ft = this.texts[this.textIdx];
+    if (!ft) {
+      const el = document.createElement('div');
+      el.className = 'float-text';
+      this.textLayer.appendChild(el);
+      ft = { el, x: 0, y: 0, z: 0, t: 1 };
+      this.texts[this.textIdx] = ft;
     }
     this.textIdx = (this.textIdx + 1) % TEXT_POOL;
-    this.scene.tweens.killTweensOf(t);
-    t.setText(text)
-      .setFontSize(size)
-      .setColor('#' + color.toString(16).padStart(6, '0'))
-      .setPosition(x + Phaser.Math.Between(-8, 8), y)
-      .setAlpha(1)
-      .setScale(1.25)
-      .setVisible(true);
-    this.scene.tweens.add({
-      targets: t,
-      y: y - 42,
-      scale: 1,
-      alpha: 0,
-      duration: 750,
-      ease: 'Cubic.easeOut',
-      onComplete: () => t.setVisible(false),
-    });
+    ft.el.textContent = text;
+    ft.el.style.color = '#' + color.toString(16).padStart(6, '0');
+    ft.el.style.fontSize = `${size + 4}px`;
+    ft.x = x + rand(-8, 8);
+    ft.z = y;
+    ft.y = 38;
+    ft.t = 0;
   }
 
   damageNumber(x: number, y: number, amount: number, toPlayer: boolean): void {
     const big = amount >= 20;
-    this.floatText(x, y - 24, `${Math.round(amount)}`, toPlayer ? 0xff5a5a : big ? 0xffd23f : 0xffffff, big ? 20 : 14);
+    this.floatText(x, y, `${Math.round(amount)}`, toPlayer ? 0xff5a5a : big ? 0xffd23f : 0xffffff, big ? 20 : 14);
+  }
+
+  // --------------------------------------------------------------- update
+  update(dt: number): void {
+    const cam = this.gfx.camera;
+    const h = this.gfx.renderer.domElement.height;
+    this.add.update(dt, cam, h);
+    this.norm.update(dt, cam, h);
+    this.shakeTime += dt;
+
+    for (const r of this.rings) {
+      if (!r.mesh.visible) continue;
+      r.t += dt;
+      const k = Math.min(1, r.t / r.dur);
+      const e = 1 - (1 - k) ** 3;
+      const s = Math.max(0.01, (r.radius / 56) * e);
+      r.mesh.scale.set(s, 1, s);
+      r.mat.opacity = 0.9 * (1 - k);
+      if (k >= 1) r.mesh.visible = false;
+    }
+    for (const g of this.ghosts) {
+      if (!g.mesh.visible) continue;
+      g.t += dt;
+      const k = Math.max(0, g.t) / 0.38;
+      g.mat.opacity = 0.55 * (1 - k);
+      if (k >= 1) g.mesh.visible = false;
+    }
+    for (const f of this.flashes) {
+      if (f.t >= f.dur) {
+        f.light.intensity = 0;
+        continue;
+      }
+      f.t += dt;
+      f.light.intensity = f.peak * Math.max(0, 1 - f.t / f.dur);
+    }
+    const p = this.v;
+    for (const ft of this.texts) {
+      if (!ft || ft.t >= 1) continue;
+      ft.t += dt / 0.8;
+      const k = Math.min(1, ft.t);
+      this.gfx.project(ft.x, ft.y + k * 26, ft.z, p);
+      if (k >= 1 || p.z > 1) {
+        ft.el.style.opacity = '0';
+        continue;
+      }
+      ft.el.style.opacity = String(1 - k * k);
+      ft.el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%) scale(${1.25 - 0.25 * k})`;
+    }
+  }
+
+  destroy(): void {
+    this.textLayer.remove();
   }
 }

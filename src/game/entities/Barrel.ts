@@ -1,6 +1,10 @@
-import Phaser from 'phaser';
-import { Depth } from '../constants';
+import * as THREE from 'three';
 import type { Car } from './Car';
+
+const GEO = new THREE.CylinderGeometry(14, 14, 26, 14);
+GEO.userData.shared = true;
+const BAND_GEO = new THREE.CylinderGeometry(14.6, 14.6, 4, 14);
+BAND_GEO.userData.shared = true;
 
 /** Pushable barrel. Explosive (red) ones blow up when shot or rammed hard. */
 export class Barrel {
@@ -22,22 +26,38 @@ export class Barrel {
   respawnTimer = 0;
   /** who triggered it – gets credit for kills */
   lastToucher: Car | null = null;
-  sprite: Phaser.GameObjects.Image;
-  shadow: Phaser.GameObjects.Image;
+  private group = new THREE.Group();
+  private mat: THREE.MeshStandardMaterial;
+  private tilt = 0;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, explosive: boolean) {
+  constructor(root: THREE.Object3D, x: number, y: number, explosive: boolean) {
     this.x = this.homeX = x;
     this.y = this.homeY = y;
     this.explosive = explosive;
-    this.shadow = scene.add.image(x + 4, y + 5, 'smoke').setTint(0x000000).setAlpha(0.5).setScale(0.55).setDepth(Depth.Shadow);
-    this.sprite = scene.add.image(x, y, explosive ? 'barrel_x' : 'barrel').setDepth(Depth.Barrel);
+    this.mat = new THREE.MeshStandardMaterial({ color: explosive ? 0xb3261a : 0x2f5f86, roughness: 0.5, metalness: 0.4 });
+    const body = new THREE.Mesh(GEO, this.mat);
+    body.position.y = 13;
+    this.group.add(body);
+    const bandMat = new THREE.MeshStandardMaterial({ color: explosive ? 0xe0b030 : 0x1a2c3c, roughness: 0.5, metalness: 0.4 });
+    for (const yy of [6, 20]) {
+      const band = new THREE.Mesh(BAND_GEO, bandMat);
+      band.position.y = yy;
+      this.group.add(band);
+    }
+    this.group.traverse((o) => ((o as THREE.Mesh).castShadow = true));
+    root.add(this.group);
+    this.sync();
   }
 
   sync(): void {
-    this.sprite.setPosition(this.x, this.y).setRotation(this.rot).setVisible(this.alive);
-    this.shadow.setPosition(this.x + 4, this.y + 5).setVisible(this.alive);
-    if (this.fuse >= 0) this.sprite.setTint(Math.sin(this.fuse * 60) > 0 ? 0xffffff : 0xff4020);
-    else this.sprite.clearTint();
+    this.group.visible = this.alive;
+    this.group.position.set(this.x, 0, this.y);
+    this.group.rotation.y = -this.rot;
+    // wobble when knocked around
+    this.tilt = Math.min(0.5, Math.hypot(this.vx, this.vy) / 600);
+    this.group.rotation.z = this.tilt;
+    if (this.fuse >= 0) this.mat.emissive.setHex(Math.sin(this.fuse * 60) > 0 ? 0xffffff : 0x401000);
+    else this.mat.emissive.setHex(0x000000);
   }
 
   reset(): void {

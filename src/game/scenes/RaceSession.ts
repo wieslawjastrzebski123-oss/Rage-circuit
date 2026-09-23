@@ -1,12 +1,13 @@
-import Phaser from 'phaser';
 import { PERSONALITIES, type Personality } from '../ai/Personality';
 import { createAbility } from '../abilities';
-import { DEBUG } from '../constants';
+import { DEBUG, DEFAULT_LAPS } from '../constants';
 import { CAR_IDS, CARS, type CarId } from '../data/cars';
 import { PRIMARY_WEAPONS, SECONDARY_WEAPONS } from '../data/weapons';
 import { AICar } from '../entities/AICar';
 import type { Car } from '../entities/Car';
 import { PlayerCar } from '../entities/PlayerCar';
+import { ChaseCamera } from '../render/ChaseCamera';
+import type { Gfx } from '../render/Gfx';
 import { AudioManager } from '../systems/AudioManager';
 import { CollisionSystem } from '../systems/CollisionSystem';
 import { CombatSystem } from '../systems/CombatSystem';
@@ -18,18 +19,13 @@ import { RespawnSystem } from '../systems/RespawnSystem';
 import type { World } from '../systems/World';
 import { Track } from '../track/Track';
 import { INDUSTRIAL_DISTRICT } from '../track/TrackData';
-import { orientedBox, TrackRenderer } from '../track/TrackRenderer';
+import { TrackView } from '../track/TrackView';
+import { DebugOverlay } from '../ui/DebugOverlay';
 import { HUD } from '../ui/HUD';
 import { button, h, layer, setCrosshair } from '../ui/dom';
-import { clamp, damp, pick, shuffle } from '../utils/math';
+import { pick, shuffle } from '../utils/math';
 import { Storage, type Loadout } from '../utils/storage';
 import { createWeapon } from '../weapons';
-import { DebugOverlay } from '../ui/DebugOverlay';
-
-export interface RaceData {
-  demo: boolean;
-  loadout?: Loadout;
-}
 
 export interface RaceResults {
   loadout: Loadout;
@@ -44,58 +40,61 @@ export interface RaceResults {
   standings: { name: string; color: number; time: number | null; player: boolean }[];
   newBestRace: boolean;
   newBestLap: boolean;
+  laps: number;
+}
+
+export interface SessionHooks {
+  onResults: (r: RaceResults) => void;
+  onRestart: () => void;
+  onMainMenu: () => void;
 }
 
 let cachedTrack: Track | null = null;
-function getTrack(): Track {
+export function getTrack(): Track {
   if (!cachedTrack) cachedTrack = new Track(INDUSTRIAL_DISTRICT);
   return cachedTrack;
 }
 
 const MAX_SUBSTEP = 1 / 100;
 
-export class RaceScene extends Phaser.Scene {
-  world!: World;
-  race!: RaceManager;
-  isDemo = true;
-  private data_!: RaceData;
-  private renderer_!: TrackRenderer;
-  private respawn!: RespawnSystem;
-  private pickups!: PickupSystem;
-  private input_: InputManager | null = null;
+/**
+ * One race (or the attract-mode demo race behind the menus):
+ * owns the world, the systems, the chase camera and the HUD.
+ */
+export class RaceSession {
+  readonly world: World;
+  readonly race: RaceManager;
+  readonly isDemo: boolean;
+  readonly loadout: Loadout | null;
+  private hooks: SessionHooks | null;
+  private respawn: RespawnSystem;
+  private pickups: PickupSystem;
+  private input: InputManager | null = null;
   private hud: HUD | null = null;
   private debug: DebugOverlay | null = null;
-  private camX = 0;
-  private camY = 0;
-  private zoom = 1;
-  private focus!: Car;
+  private cam: ChaseCamera;
+  private view: TrackView;
+  private smokeTimer = 0;
+  private focus: Car;
   private demoSwitch = 0;
-  private paused = false;
+  paused = false;
   private pauseLayer: HTMLElement | null = null;
   private finished = false;
   private resultsTimer = -1;
-  private crosshair: HTMLElement | null = null;
+  private crosshair = document.getElementById('crosshair');
   private onKey = (e: KeyboardEvent) => this.handleKey(e);
   private onBlur = () => this.setPaused(true);
 
-  constructor() {
-    super('RaceScene');
-  }
+  constructor(gfx: Gfx, loadout: Loadout | null, hooks: SessionHooks | null) {
+    this.isDemo = loadout === null;
+    this.loadout = loadout;
+    this.hooks = hooks;
+    gfx.resetRoot();
 
-  init(data: RaceData): void {
-    this.data_ = { demo: data?.demo ?? true, loadout: data?.loadout };
-    this.isDemo = this.data_.demo;
-    this.paused = false;
-    this.finished = false;
-    this.resultsTimer = -1;
-    this.pauseLayer = null;
-  }
-
-  create(): void {
     const track = getTrack();
     const audio = AudioManager.instance;
     const world: World = {
-      scene: this,
+      gfx,
       track,
       cars: [],
       time: 0,
@@ -108,37 +107,31 @@ export class RaceScene extends Phaser.Scene {
       player: null,
     };
     this.world = world;
-    world.effects = new Effects(this);
+    this.view = new TrackView(track, gfx.root);
+    world.effects = new Effects(gfx);
     world.combat = new CombatSystem(world);
     world.collisions = new CollisionSystem(world, track.def.obstacles);
-
-    this.renderer_ = new TrackRenderer(this, track);
-    for (const o of track.def.obstacles) {
-      if (o.kind === 'container') {
-        this.renderer_.addProp(orientedBox(o.x, o.y, o.w ?? 100, o.h ?? 40, o.angle ?? 0, 34, 0xd6562b, 0x6b2a14, 0xffb000));
-      }
-    }
     this.pickups = new PickupSystem(world, track.def.pickups);
-    this.race = new RaceManager(world);
+    this.race = new RaceManager(world, loadout?.laps ?? DEFAULT_LAPS);
     this.respawn = new RespawnSystem(world, this.race);
+    this.cam = new ChaseCamera(gfx, track);
 
     const personalities = shuffle([PERSONALITIES.aggressive, PERSONALITIES.balanced, PERSONALITIES.racer]);
-    if (this.isDemo) {
+    if (!loadout) {
       const ids = shuffle(CAR_IDS.slice());
-      ids.forEach((id, i) => world.cars.push(this.makeBot(id, personalities[i % 3] ?? PERSONALITIES.balanced)));
+      ids.forEach((id, i) => world.cars.push(this.makeBot(id, personalities[i % 3])));
       this.race.setupGrid(shuffle(world.cars.slice()));
       this.race.startImmediately();
       this.focus = pick(world.cars);
+      this.cam.cinematic = true;
     } else {
-      const lo = this.data_.loadout ?? Storage.getLoadout();
-      this.input_ = new InputManager(this);
-      const player = new PlayerCar(world, CARS[lo.car], this.input_);
-      player.primary = createWeapon(lo.primary);
-      player.secondary = createWeapon(lo.secondary);
+      this.input = new InputManager(gfx);
+      const player = new PlayerCar(world, CARS[loadout.car], this.input);
+      player.primary = createWeapon(loadout.primary);
+      player.secondary = createWeapon(loadout.secondary);
       player.ability = createAbility(player.stats.ability);
       world.player = player;
-      const others = CAR_IDS.filter((id) => id !== lo.car);
-      const bots = others.map((id, i) => this.makeBot(id, personalities[i]));
+      const bots = CAR_IDS.filter((id) => id !== loadout.car).map((id, i) => this.makeBot(id, personalities[i]));
       world.cars.push(player, ...bots);
       // player starts near the back – more to fight for
       const grid = shuffle(bots.slice()) as Car[];
@@ -150,28 +143,20 @@ export class RaceScene extends Phaser.Scene {
       world.hud = this.hud;
       this.race.onPlayerFinish = () => this.onPlayerFinish();
       audio.startEngine();
-      this.crosshair = document.getElementById('crosshair');
       setCrosshair(true);
       this.hud.announce('INDUSTRIAL DISTRICT', '#ff2d6f', 2200);
+      window.addEventListener('keydown', this.onKey);
+      window.addEventListener('blur', this.onBlur);
     }
     for (const c of world.cars) {
       if (c instanceof AICar) c.racing.requestReset = () => this.respawn.reset(c);
     }
-
-    this.camX = this.focus.x;
-    this.camY = this.focus.y;
-    this.zoom = this.baseZoom();
-    this.cameras.main.setZoom(this.zoom).centerOn(this.camX, this.camY);
-    this.cameras.main.setBackgroundColor('#0b0c10');
+    this.cam.snap(this.focus);
 
     if (DEBUG) {
-      this.debug = new DebugOverlay(this, world, this.race);
-      (window as unknown as { __rc: RaceScene }).__rc = this;
+      this.debug = new DebugOverlay(world, this.race);
+      (window as unknown as { __rc: RaceSession }).__rc = this;
     }
-
-    window.addEventListener('keydown', this.onKey);
-    if (!this.isDemo) window.addEventListener('blur', this.onBlur);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
   }
 
   private makeBot(id: CarId, p: Personality): AICar {
@@ -182,28 +167,29 @@ export class RaceScene extends Phaser.Scene {
     return bot;
   }
 
-  private baseZoom(): number {
-    const h = this.scale.height;
-    return clamp(h / (this.isDemo ? 1100 : 960), 0.6, 1.8);
-  }
-
   // ------------------------------------------------------------------ loop
-  update(_time: number, delta: number): void {
+  update(rawDt: number): void {
     if (this.paused) return;
-    const frameDt = Math.min(delta / 1000, 0.05);
+    const frameDt = Math.min(rawDt, 0.05);
     const fx = this.world.effects;
 
-    if (fx.hitStop > 0) {
-      fx.hitStop -= delta;
-    } else {
+    if (fx.hitStop > 0) fx.hitStop -= frameDt * 1000;
+    else {
       const steps = Math.max(1, Math.ceil(frameDt / MAX_SUBSTEP));
       const dt = frameDt / steps;
       for (let i = 0; i < steps; i++) this.step(dt);
     }
 
     for (const c of this.world.cars) c.updateVisuals(frameDt);
-    this.updateCamera(frameDt);
-    this.renderer_.update(this.cameras.main);
+    this.updateDemoFocus(frameDt);
+    this.cam.update(frameDt, this.focus, fx);
+    this.world.gfx.follow(this.focus.x, this.focus.y);
+    this.smokeTimer -= frameDt;
+    if (this.smokeTimer <= 0) {
+      this.smokeTimer = 0.35;
+      for (const c of this.view.chimneys) fx.chimneySmoke(c.x, c.y, c.h);
+    }
+    fx.update(frameDt);
     this.updateAudio();
     if (this.hud && this.world.player) this.hud.update(frameDt, this.world.player, this.race, this.world.cars);
     this.updateCrosshair();
@@ -215,7 +201,7 @@ export class RaceScene extends Phaser.Scene {
     }
   }
 
-  private step(dt: number): void {
+  step(dt: number): void {
     const w = this.world;
     w.time += dt;
     this.race.update(dt);
@@ -227,60 +213,33 @@ export class RaceScene extends Phaser.Scene {
     this.respawn.update(dt);
   }
 
-  private updateCamera(dt: number): void {
-    const cam = this.cameras.main;
-    if (this.isDemo) {
-      this.demoSwitch += dt;
-      if (this.demoSwitch > 9) {
-        this.demoSwitch = 0;
-        const others = this.world.cars.filter((c) => c !== this.focus && c.alive);
-        if (others.length) this.focus = pick(others);
+  private updateDemoFocus(dt: number): void {
+    if (!this.isDemo) return;
+    this.demoSwitch += dt;
+    if (this.demoSwitch > 10) {
+      this.demoSwitch = 0;
+      const others = this.world.cars.filter((c) => c !== this.focus && c.alive);
+      if (others.length) {
+        this.focus = pick(others);
+        this.cam.snap(this.focus);
       }
     }
-    const f = this.focus;
-    const spd = f.speed;
-    let lx = f.vx * 0.3;
-    let ly = f.vy * 0.3;
-    const ll = Math.hypot(lx, ly);
-    if (ll > 230) {
-      lx *= 230 / ll;
-      ly *= 230 / ll;
-    }
-    // lean a little toward the aim point so you can see what you shoot at
-    if (f.isPlayer && f.alive) {
-      const ax = clamp((f.controls.aimX - f.x) * 0.12, -110, 110);
-      const ay = clamp((f.controls.aimY - f.y) * 0.12, -80, 80);
-      lx += ax;
-      ly += ay;
-    }
-    this.camX = damp(this.camX, f.x + lx, 4.5, dt);
-    this.camY = damp(this.camY, f.y + ly, 4.5, dt);
-    // snap if we fell far behind (respawn / camera switch)
-    if (Math.hypot(this.camX - f.x, this.camY - f.y) > 900) {
-      this.camX = f.x;
-      this.camY = f.y;
-    }
-    const speedK = clamp(spd / 700, 0, 1);
-    const targetZoom = this.baseZoom() * (1 - 0.06 * speedK - 0.05 * clamp(f.boostPower, 0, 1.3));
-    this.zoom = damp(this.zoom, targetZoom, 1.8, dt);
-    cam.setZoom(this.zoom);
-    cam.centerOn(this.camX, this.camY);
   }
 
   private updateAudio(): void {
     const a = this.world.audio;
-    a.setListener(this.camX, this.camY);
+    a.setListener(this.focus.x, this.focus.y);
     const p = this.world.player;
     if (!p) return;
     const ratio = p.alive ? p.speed / p.stats.maxSpeed : 0;
     const screech = p.alive && (p.drifting || (p.controls.throttle < 0 && p.forwardSpeed > 250)) ? 1 : 0;
-    a.updateEngine(ratio, p.alive && this.world.raceStarted ? p.controls.throttle : 0, p.boostPower, this.paused ? 0 : screech);
+    a.updateEngine(ratio, p.alive && this.world.raceStarted ? p.controls.throttle : 0, p.boostPower, screech);
   }
 
   private updateCrosshair(): void {
     const p = this.world.player;
     if (!this.crosshair || !p) return;
-    const locked = p.alive && this.world.combat.findLockTarget(p, p.controls.aimX, p.controls.aimY, 70) !== null;
+    const locked = p.alive && this.world.combat.findTargetInCone(p, p.aimAngle, 0.12, 900) !== null;
     this.crosshair.classList.toggle('lock', locked);
   }
 
@@ -300,14 +259,15 @@ export class RaceScene extends Phaser.Scene {
 
   private showResults(): void {
     const p = this.world.player!;
-    const lo = this.data_.loadout ?? Storage.getLoadout();
+    const lo = this.loadout!;
     const bestLap = Math.min(...p.race.lapTimes);
     const rec = Storage.getRecords();
-    const newBestRace = rec.bestRaceTime === null || p.race.finishTime * 1000 < rec.bestRaceTime;
+    const key = String(this.race.laps);
+    const prevBest = rec.bestRace[key];
+    const newBestRace = !prevBest || p.race.finishTime * 1000 < prevBest.time;
     const newBestLap = rec.bestLapTime === null || bestLap * 1000 < rec.bestLapTime;
     if (newBestRace) {
-      rec.bestRaceTime = p.race.finishTime * 1000;
-      rec.bestRaceCar = lo.car;
+      rec.bestRace[key] = { time: p.race.finishTime * 1000, car: lo.car };
     }
     if (newBestLap) {
       rec.bestLapTime = bestLap * 1000;
@@ -317,8 +277,8 @@ export class RaceScene extends Phaser.Scene {
     rec.racesFinished++;
     if (position === 1) rec.wins++;
     Storage.saveRecords(rec);
-
-    const results: RaceResults = {
+    this.hud?.setVisible(false);
+    this.hooks?.onResults({
       loadout: lo,
       position,
       raceTime: p.race.finishTime,
@@ -336,14 +296,13 @@ export class RaceScene extends Phaser.Scene {
       })),
       newBestRace,
       newBestLap,
-    };
-    this.hud?.setVisible(false);
-    this.scene.launch('ResultsScene', results);
+      laps: this.race.laps,
+    });
   }
 
   // ------------------------------------------------------------------ pause
   private handleKey(e: KeyboardEvent): void {
-    if (this.isDemo || this.finished) return;
+    if (this.finished) return;
     if (e.code === 'Escape' || e.code === 'KeyP') this.setPaused(!this.paused);
   }
 
@@ -358,9 +317,9 @@ export class RaceScene extends Phaser.Scene {
       h('h2', '', 'PAUSED', panel);
       const col = h('div', 'col', undefined, panel);
       button('RESUME', col, () => this.setPaused(false), 'primary');
-      button('RESTART RACE', col, () => this.scene.restart(this.data_));
-      button('MAIN MENU', col, () => this.scene.start('MenuScene'));
-      h('p', 'small', 'WASD drive · SHIFT drift · E boost · Mouse aim · LMB/RMB fire · SPACE ability · R reset', panel);
+      button('RESTART RACE', col, () => this.hooks?.onRestart());
+      button('MAIN MENU', col, () => this.hooks?.onMainMenu());
+      h('p', 'small', 'WASD drive · SPACE drift · E boost · Mouse aim · LMB/RMB fire · SHIFT ability · R reset', panel);
     } else {
       this.pauseLayer?.remove();
       this.pauseLayer = null;
@@ -369,21 +328,15 @@ export class RaceScene extends Phaser.Scene {
   }
 
   // ------------------------------------------------------------------ teardown
-  private cleanup(): void {
+  destroy(): void {
     window.removeEventListener('keydown', this.onKey);
     window.removeEventListener('blur', this.onBlur);
     this.pauseLayer?.remove();
     this.hud?.destroy();
-    this.hud = null;
     this.debug?.destroy();
-    this.debug = null;
-    this.input_?.destroy();
-    this.input_ = null;
+    this.input?.destroy();
     this.world.audio.stopEngine();
-    this.world.combat.clear();
-    for (const c of this.world.cars) c.destroy();
-    this.world.cars.length = 0;
+    this.world.effects.destroy();
     setCrosshair(false);
-    this.scene.stop('ResultsScene');
   }
 }

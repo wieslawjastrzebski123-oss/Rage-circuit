@@ -1,25 +1,26 @@
-import Phaser from 'phaser';
-import { ABILITIES, CAR_IDS, CARS, type CarId } from '../data/cars';
+import { ABILITIES, CAR_IDS, CARS } from '../data/cars';
 import { PRIMARY_WEAPONS, SECONDARY_WEAPONS, WEAPONS, type WeaponId } from '../data/weapons';
 import { AudioManager } from '../systems/AudioManager';
 import { button, h, hex, layer } from '../ui/dom';
 import { Storage, type Loadout } from '../utils/storage';
-import { ensureDemo } from './shared';
+import { DEFAULT_LAPS, LAP_OPTIONS } from '../constants';
+import type { App } from '../App';
+import { carPreview } from './CarPreview';
 
 /** SELECT YOUR CAR → SELECT LOADOUT → START RACE */
-export class GarageScene extends Phaser.Scene {
+export class GarageScreen {
   private root: HTMLElement | null = null;
-  private loadout!: Loadout;
+  private loadout: Loadout;
+  private app: App;
 
-  constructor() {
-    super('GarageScene');
-  }
-
-  create(): void {
-    ensureDemo(this);
+  constructor(app: App) {
+    this.app = app;
     this.loadout = Storage.getLoadout();
     this.showCars();
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.root?.remove());
+  }
+
+  destroy(): void {
+    this.root?.remove();
   }
 
   private reset(): HTMLElement {
@@ -31,11 +32,6 @@ export class GarageScene extends Phaser.Scene {
   private click(): void {
     AudioManager.instance.unlock();
     AudioManager.instance.click();
-  }
-
-  private carPreview(id: CarId): string {
-    const tex = this.textures.get(`car_${id}`).getSourceImage() as HTMLCanvasElement;
-    return tex.toDataURL();
   }
 
   private showCars(): void {
@@ -59,7 +55,7 @@ export class GarageScene extends Phaser.Scene {
       h('div', 'car-name', car.name, card);
       h('div', 'archetype', car.archetype, card);
       const img = h('img', 'car-img', undefined, card);
-      img.src = this.carPreview(id);
+      img.src = carPreview(id);
       img.alt = car.name;
       const stats = h('div', 'stats', undefined, card);
       statRow(stats, 'SPEED', car.rating.speed, col);
@@ -78,7 +74,7 @@ export class GarageScene extends Phaser.Scene {
     const nav = h('div', 'nav', undefined, root);
     button('BACK', nav, () => {
       this.click();
-      this.scene.start('MenuScene');
+      this.app.showMenu();
     });
     h('div', 'hint-line', 'Click a car to continue', nav);
   }
@@ -87,7 +83,7 @@ export class GarageScene extends Phaser.Scene {
     const root = this.reset();
     const car = CARS[this.loadout.car];
     h('h1', 'screen-title', 'SELECT LOADOUT', root);
-    h('div', 'subtitle', `<b style="color:${hex(car.color)}">${car.name}</b> · ability: ${ABILITIES[car.ability].name} [SPACE]`, root);
+    h('div', 'subtitle', `<b style="color:${hex(car.color)}">${car.name}</b> · ability: ${ABILITIES[car.ability].name} [SHIFT]`, root);
     const wrap = h('div', 'loadout', undefined, root);
     const group = (title: string, ids: WeaponId[], key: 'primary' | 'secondary', keyLabel: string) => {
       const g = h('div', 'group', undefined, wrap);
@@ -120,6 +116,22 @@ export class GarageScene extends Phaser.Scene {
     group('PRIMARY', PRIMARY_WEAPONS, 'primary', 'LEFT MOUSE');
     group('SECONDARY', SECONDARY_WEAPONS, 'secondary', 'RIGHT MOUSE / Q');
 
+    // race length
+    if (!LAP_OPTIONS.includes(this.loadout.laps)) this.loadout.laps = DEFAULT_LAPS;
+    const lapsRow = h('div', 'laps-select', undefined, root);
+    h('h3', '', 'LAPS', lapsRow);
+    const lapBtns: HTMLElement[] = [];
+    for (const n of LAP_OPTIONS) {
+      const b = h('button', `lap-opt ${this.loadout.laps === n ? 'selected' : ''}`, String(n), lapsRow);
+      b.addEventListener('click', () => {
+        this.click();
+        this.loadout.laps = n;
+        lapBtns.forEach((x) => x.classList.remove('selected'));
+        b.classList.add('selected');
+      });
+      lapBtns.push(b);
+    }
+
     const nav = h('div', 'nav', undefined, root);
     button('BACK', nav, () => {
       this.click();
@@ -131,6 +143,6 @@ export class GarageScene extends Phaser.Scene {
   private start(): void {
     this.click();
     Storage.saveLoadout(this.loadout);
-    this.scene.start('RaceScene', { demo: false, loadout: { ...this.loadout } });
+    this.app.startRace({ ...this.loadout });
   }
 }

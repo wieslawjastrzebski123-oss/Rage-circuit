@@ -53,7 +53,7 @@ export class Blink extends Ability {
     // small exit burst so the dash feels like a dash
     owner.vx += dx * 80;
     owner.vy += dy * 80;
-    world.effects.blink(fromX, fromY, owner.x, owner.y, owner.heading, owner.stats.id);
+    world.effects.blink(fromX, fromY, owner.x, owner.y, owner.heading);
     world.audio.blink(owner);
     return true;
   }

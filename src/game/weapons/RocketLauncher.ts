@@ -12,8 +12,8 @@ export class RocketLauncher extends Weapon {
     const st = this.stats;
     const a = owner.aimAngle;
     const m = this.muzzle(owner, 22);
-    // lock onto the enemy closest to the aim point (within reason)
-    const target = world.combat.findLockTarget(owner, owner.controls.aimX, owner.controls.aimY, 380);
+    // lock onto the enemy closest to the aiming line
+    const target = world.combat.findTargetInCone(owner, a, 0.35, 950);
     const p = world.combat.spawnProjectile('rocket', owner, m.x, m.y, a, st.projectileSpeed, st);
     if (p) p.target = target;
     world.effects.muzzle(m.x, m.y, a, 0xff6a2d, 1.1);

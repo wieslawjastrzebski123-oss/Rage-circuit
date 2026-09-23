@@ -166,9 +166,11 @@ export class CombatAI {
 
     let use = false;
     switch (car.stats.ability) {
-      case 'nitro':
-        use = straight && car.speed > car.stats.maxSpeed * 0.55;
+      case 'overcharge': {
+        const t = this.target;
+        use = !!t && Math.hypot(t.x - car.x, t.y - car.y) < 420 && car.primary.cooldownLeft < 0.2;
         break;
+      }
       case 'shield':
         use = car.hp < car.maxHp * 0.75 && this.recentDamage > 0;
         break;

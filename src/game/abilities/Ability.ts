@@ -19,7 +19,7 @@ export abstract class Ability {
   }
 
   isReady(owner: Car): boolean {
-    return this.cooldownLeft <= 0 && owner.energy >= this.info.energyCost && owner.canAct;
+    return this.cooldownLeft <= 0 && owner.unlockAbility && owner.energy >= this.info.energyCost && owner.canAct;
   }
 
   update(dt: number, _owner: Car): void {

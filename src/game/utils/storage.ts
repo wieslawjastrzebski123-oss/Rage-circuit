@@ -6,18 +6,21 @@ export interface Settings {
   masterVolume: number; // 0..1
   sfxVolume: number; // 0..1
   cameraShake: number; // 0..1
+  /** high = sun shadows + sharper image, low = faster on weak GPUs */
+  quality: 'high' | 'low';
 }
 
 export interface Loadout {
   car: CarId;
   primary: WeaponId;
   secondary: WeaponId;
+  laps: number;
 }
 
 export interface Records {
-  bestRaceTime: number | null; // ms
+  /** best race time per lap count, ms */
+  bestRace: Record<string, { time: number; car: CarId }>;
   bestLapTime: number | null; // ms
-  bestRaceCar: CarId | null;
   bestLapCar: CarId | null;
   racesFinished: number;
   wins: number;
@@ -27,12 +30,11 @@ const KEY_SETTINGS = 'rageCircuit.settings.v1';
 const KEY_LOADOUT = 'rageCircuit.loadout.v1';
 const KEY_RECORDS = 'rageCircuit.records.v1';
 
-const DEFAULT_SETTINGS: Settings = { masterVolume: 0.7, sfxVolume: 0.8, cameraShake: 0.8 };
-const DEFAULT_LOADOUT: Loadout = { car: 'viper', primary: 'machinegun', secondary: 'rocket' };
+const DEFAULT_SETTINGS: Settings = { masterVolume: 0.7, sfxVolume: 0.8, cameraShake: 0.8, quality: 'high' };
+const DEFAULT_LOADOUT: Loadout = { car: 'viper', primary: 'machinegun', secondary: 'rocket', laps: 5 };
 const DEFAULT_RECORDS: Records = {
-  bestRaceTime: null,
+  bestRace: {},
   bestLapTime: null,
-  bestRaceCar: null,
   bestLapCar: null,
   racesFinished: 0,
   wins: 0,

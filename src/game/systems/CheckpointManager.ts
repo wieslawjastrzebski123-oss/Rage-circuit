@@ -1,7 +1,10 @@
 import type { Car } from '../entities/Car';
 import type { Track, TrackHit } from '../track/Track';
 
-const MAX_STEP = 450; // bigger jumps in one frame are ignored (never happens while driving)
+// Separate parts of the track are walled apart, so a big jump can only come from
+// overlapping pieces at a junction (shortcut s-values differ from the main road).
+// Anything larger than this is ignored as a mismatch.
+const MAX_STEP = 1500;
 const WRONG_WAY_SPEED = 60;
 
 /**

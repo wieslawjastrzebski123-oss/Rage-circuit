@@ -1,22 +1,22 @@
-import Phaser from 'phaser';
 import { CARS } from '../data/cars';
 import { AudioManager } from '../systems/AudioManager';
 import { button, h, layer } from '../ui/dom';
 import { formatTime } from '../utils/math';
 import { Storage } from '../utils/storage';
-import { ensureDemo } from './shared';
+import type { App } from '../App';
 
-export class MenuScene extends Phaser.Scene {
+/** Title screen: PLAY / HOW TO PLAY / SETTINGS, over the attract-mode race. */
+export class MenuScreen {
   private root: HTMLElement | null = null;
+  private app: App;
 
-  constructor() {
-    super('MenuScene');
+  constructor(app: App) {
+    this.app = app;
+    this.showMain();
   }
 
-  create(): void {
-    ensureDemo(this);
-    this.showMain();
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.root?.remove());
+  destroy(): void {
+    this.root?.remove();
   }
 
   private reset(): HTMLElement {
@@ -39,7 +39,7 @@ export class MenuScene extends Phaser.Scene {
     const col = h('div', 'col main-buttons', undefined, wrap);
     button('PLAY', col, () => {
       this.click();
-      this.scene.start('GarageScene');
+      this.app.showGarage();
     }, 'primary big');
     button('HOW TO PLAY', col, () => {
       this.click();
@@ -53,10 +53,12 @@ export class MenuScene extends Phaser.Scene {
     const r = Storage.getRecords();
     const rec = h('div', 'records', undefined, wrap);
     const carName = (id: string | null) => (id ? CARS[id as keyof typeof CARS].name : '');
-    h('div', '', `<span>BEST RACE</span><b>${r.bestRaceTime ? formatTime(r.bestRaceTime) : '--'}</b><em>${carName(r.bestRaceCar)}</em>`, rec);
+    const laps = Storage.getLoadout().laps ?? 5;
+    const br = r.bestRace?.[String(laps)];
+    h('div', '', `<span>BEST RACE · ${laps} ${laps === 1 ? 'LAP' : 'LAPS'}</span><b>${br ? formatTime(br.time) : '--'}</b><em>${carName(br?.car ?? null)}</em>`, rec);
     h('div', '', `<span>BEST LAP</span><b>${r.bestLapTime ? formatTime(r.bestLapTime) : '--'}</b><em>${carName(r.bestLapCar)}</em>`, rec);
     h('div', '', `<span>WINS</span><b>${r.wins} / ${r.racesFinished}</b><em>races</em>`, rec);
-    h('div', 'footer', 'Desktop · keyboard + mouse · add <code>?debug=true</code> to the URL for debug view', root);
+    h('div', 'footer', 'Desktop · keyboard + mouse · third-person view · add <code>?debug=true</code> to the URL for debug view', root);
   }
 
   private showHowTo(): void {
@@ -67,12 +69,12 @@ export class MenuScene extends Phaser.Scene {
     const rows: [string, string][] = [
       ['W / S', 'Throttle / brake & reverse'],
       ['A / D', 'Steer'],
-      ['SHIFT', 'Drift (while fast and turning). Hold to charge, release for a boost'],
+      ['SPACE', 'Drift (while fast and turning). Hold to charge, release for a boost'],
       ['E', 'Boost – uses the Boost meter (fills from drifting, kills, pickups)'],
-      ['MOUSE', 'Aim the turret – shoot in any direction, even sideways mid-drift'],
+      ['MOUSE', 'Aim the turret. Cursor high = shoot ahead, at the sides = shoot sideways, near the bottom = shoot behind you'],
       ['LMB', 'Primary weapon (Machine Gun / Cannon)'],
       ['RMB / Q', 'Secondary weapon (Rocket / Mine)'],
-      ['SPACE', 'Car ability (Nitro / Shield / Blink / EMP)'],
+      ['SHIFT', 'Car ability (Overcharge / Shield / Blink / EMP)'],
       ['R', 'Reset to last checkpoint (2 s penalty)'],
       ['ESC', 'Pause'],
     ];
@@ -82,6 +84,7 @@ export class MenuScene extends Phaser.Scene {
     }
     const tips = h('ul', 'tips', undefined, panel);
     [
+      'Weapons come online during the race: primary 7 s after GO, secondary on lap 2, car ability on lap 3 (in 1–2 lap races after 25 s and 50 s).',
       'Energy powers weapons and abilities – it regenerates faster the faster you drive.',
       'Drift longer for a stronger boost: blue → yellow → orange → pink. Hitting a wall cancels the charge.',
       'Rockets home in lightly – dodge them with a hard turn or a drift.',
@@ -100,7 +103,7 @@ export class MenuScene extends Phaser.Scene {
     const panel = h('div', 'panel', undefined, root);
     h('h2', '', 'SETTINGS', panel);
     const s = { ...Storage.getSettings() };
-    const slider = (label: string, key: keyof typeof s) => {
+    const slider = (label: string, key: 'masterVolume' | 'sfxVolume' | 'cameraShake') => {
       const row = h('label', 'slider', undefined, panel);
       h('span', '', label, row);
       const input = h('input', '', undefined, row);
@@ -120,6 +123,17 @@ export class MenuScene extends Phaser.Scene {
     slider('MASTER VOLUME', 'masterVolume');
     slider('SFX VOLUME', 'sfxVolume');
     slider('CAMERA SHAKE', 'cameraShake');
+    const q = h('label', 'slider', undefined, panel);
+    h('span', '', 'GRAPHICS', q);
+    const sel = h('select', '', '<option value="high">HIGH (shadows)</option><option value="low">LOW (faster)</option>', q);
+    sel.value = s.quality;
+    h('b', '', '', q);
+    sel.addEventListener('change', () => {
+      s.quality = sel.value === 'low' ? 'low' : 'high';
+      Storage.saveSettings(s);
+      this.app.gfx.applySettings();
+      this.click();
+    });
     button('BACK', panel, () => {
       this.click();
       this.showMain();

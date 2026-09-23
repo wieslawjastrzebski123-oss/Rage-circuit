@@ -406,12 +406,12 @@ code {
 }
 
 .car-img {
-  width: 150px;
+  width: 100%;
+  max-width: 260px;
   align-self: center;
-  margin: 10px 0;
-  transform: rotate(-90deg);
+  margin: 4px 0;
   filter: drop-shadow(0 0 14px var(--c));
-  height: 80px;
+  height: 120px;
   object-fit: contain;
 }
 
@@ -484,6 +484,39 @@ code {
   gap: 28px;
   width: min(900px, calc(100% - 48px));
   margin-bottom: 18px;
+}
+
+.laps-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.laps-select h3 {
+  font-family: var(--display);
+  letter-spacing: 0.15em;
+  margin: 0 12px 0 0;
+}
+
+.lap-opt {
+  font-family: var(--display);
+  font-size: 18px;
+  min-width: 56px;
+  padding: 10px 0;
+  color: var(--text);
+  background: rgba(12, 14, 20, 0.96);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.lap-opt:hover {
+  background: rgba(0, 229, 255, 0.12);
+}
+
+.lap-opt.selected {
+  border-color: var(--pink);
+  background: rgba(255, 45, 111, 0.2);
 }
 
 .group h3 {
@@ -950,6 +983,15 @@ code {
   opacity: 0.7;
 }
 
+.hud-slot.locked {
+  border-left-color: #444;
+  opacity: 0.55;
+}
+
+.hud-slot.locked .info span.lock {
+  color: #ffd23f;
+}
+
 .hud-slot.jammed {
   border-left-color: #ff3030;
   opacity: 0.5;
@@ -1171,6 +1213,12 @@ code {
   opacity: 0;
 }
 
+.lens-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 60%, rgba(0, 0, 0, 0.28) 100%);
+}
+
 .hud-vignette {
   position: absolute;
   inset: 0;
@@ -1216,11 +1264,42 @@ code {
     gap: 10px;
   }
   .car-img {
-    height: 60px;
-    margin: 4px 0;
+    height: 90px;
+    margin: 2px 0;
   }
   .card {
     padding: 12px;
     gap: 6px;
   }
+}
+
+/* ------------------------------------------------------------------ 3D overlays */
+.float-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.float-text {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  white-space: nowrap;
+  opacity: 0;
+  text-shadow:
+    0 0 4px #000,
+    0 2px 0 #000;
+  will-change: transform, opacity;
+}
+
+.slider select {
+  background: #14161e;
+  color: var(--text);
+  border: 1px solid var(--line);
+  font-family: var(--display);
+  font-size: 12px;
+  padding: 6px 8px;
 }

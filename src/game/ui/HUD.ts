@@ -3,6 +3,7 @@ import { DRIFT_LEVELS } from '../entities/Car';
 import type { RaceManager } from '../systems/RaceManager';
 import type { Track } from '../track/Track';
 import { formatTime } from '../utils/math';
+import { ABILITY_UNLOCK_LAP, ABILITY_UNLOCK_TIME_SHORT, PRIMARY_UNLOCK_TIME, SECONDARY_UNLOCK_LAP, SECONDARY_UNLOCK_TIME_SHORT } from '../constants';
 import { h, hex, layer } from './dom';
 
 interface Bar {
@@ -58,6 +59,7 @@ export class HUD {
 
   constructor(track: Track) {
     this.root = layer('hud');
+    h('div', 'lens-vignette', '', this.root);
     const tl = h('div', 'hud-tl', undefined, this.root);
     const posWrap = h('div', 'hud-pos', undefined, tl);
     this.pos = h('span', 'pos-num', '1', posWrap);
@@ -77,7 +79,7 @@ export class HUD {
     this.hp = this.bar(bl, 'HP', 'hp');
     this.energy = this.bar(bl, 'ENERGY', 'energy');
     this.boost = this.bar(bl, 'BOOST  [E]', 'boost');
-    this.drift = h('div', 'hud-drift', '<span class="lbl">DRIFT [SHIFT]</span>', bl);
+    this.drift = h('div', 'hud-drift', '<span class="lbl">DRIFT [SPACE]</span>', bl);
     const pips = h('div', 'pips', undefined, this.drift);
     for (const L of DRIFT_LEVELS) {
       const p = h('div', 'pip', undefined, pips);
@@ -89,7 +91,7 @@ export class HUD {
     const br = h('div', 'hud-br', undefined, this.root);
     this.primary = this.slot(br, 'LMB');
     this.secondary = this.slot(br, 'RMB');
-    this.ability = this.slot(br, 'SPACE');
+    this.ability = this.slot(br, 'SHIFT');
 
     this.speed = h('div', 'hud-speed', '0', this.root);
     this.center = h('div', 'hud-center', '', this.root);
@@ -280,14 +282,20 @@ export class HUD {
     const status: string[] = [];
     if (player.shieldTime > 0) status.push('<span class="st shield">SHIELD</span>');
     if (player.empTime > 0) status.push('<span class="st emp">JAMMED</span>');
-    if (player.nitroTime > 0) status.push('<span class="st nitro">NITRO</span>');
+    if (player.overchargeTime > 0) status.push('<span class="st nitro">OVERCHARGE</span>');
     if (player.ghostTime > 0 && player.alive) status.push('<span class="st ghost">GHOST</span>');
     if (player.frozenTime > 0) status.push(`<span class="st ghost">RESET ${player.frozenTime.toFixed(1)}</span>`);
     this.setText('status', this.status, status.join(''));
 
-    this.updateSlot('p', this.primary, player.primary.name, player.primary.cooldownRatio, player.energy >= player.primary.stats.energyCost, `${player.primary.stats.energyCost} EN`, player);
-    this.updateSlot('s', this.secondary, player.secondary.name, player.secondary.cooldownRatio, player.energy >= player.secondary.stats.energyCost, `${player.secondary.stats.energyCost} EN`, player);
-    this.updateSlot('a', this.ability, player.abilityName, player.ability.cooldownRatio, player.energy >= player.ability.info.energyCost, `${player.ability.info.energyCost} EN`, player);
+    const t = race.phase === 'countdown' ? 0 : race.raceTime;
+    const pLock = player.unlockPrimary ? null : `ONLINE IN ${Math.ceil(PRIMARY_UNLOCK_TIME - t)}s`;
+    const short = race.laps < ABILITY_UNLOCK_LAP;
+    const sLock = player.unlockSecondary ? null : short ? `ONLINE IN ${Math.ceil(SECONDARY_UNLOCK_TIME_SHORT - t)}s` : `UNLOCKS ON LAP ${SECONDARY_UNLOCK_LAP}`;
+    const aLock = player.unlockAbility ? null : short ? `ONLINE IN ${Math.ceil(ABILITY_UNLOCK_TIME_SHORT - t)}s` : `UNLOCKS ON LAP ${ABILITY_UNLOCK_LAP}`;
+    const pCost = player.primary.energyCost(player);
+    this.updateSlot('p', this.primary, player.primary.name, player.primary.cooldownRatio, player.energy >= pCost, `${pCost} EN`, player, pLock);
+    this.updateSlot('s', this.secondary, player.secondary.name, player.secondary.cooldownRatio, player.energy >= player.secondary.stats.energyCost, `${player.secondary.stats.energyCost} EN`, player, sLock);
+    this.updateSlot('a', this.ability, player.abilityName, player.ability.cooldownRatio, player.energy >= player.ability.info.energyCost, `${player.ability.info.energyCost} EN`, player, aLock);
 
     this.setText('spd', this.speed, `${Math.round(player.speed * 0.36)}<small>KM/H</small>`);
 
@@ -309,11 +317,12 @@ export class HUD {
     if (b.text.textContent !== text) b.text.textContent = text;
   }
 
-  private updateSlot(key: string, s: Slot, name: string, cd: number, affordable: boolean, cost: string, player: Car): void {
-    this.setText(`${key}n`, s.info, `<b>${name}</b><span>${cost}</span>`);
+  private updateSlot(key: string, s: Slot, name: string, cd: number, affordable: boolean, cost: string, player: Car, lock: string | null): void {
+    this.setText(`${key}n`, s.info, lock ? `<b>${name}</b><span class="lock">🔒 ${lock}</span>` : `<b>${name}</b><span>${cost}</span>`);
     s.cd.style.transform = `scaleX(${Math.max(0, Math.min(1, cd)).toFixed(3)})`;
     const jammed = player.empTime > 0 || !player.alive;
-    s.root.classList.toggle('ready', cd <= 0 && affordable && !jammed);
+    s.root.classList.toggle('locked', !!lock);
+    s.root.classList.toggle('ready', !lock && cd <= 0 && affordable && !jammed);
     s.root.classList.toggle('noenergy', !affordable);
     s.root.classList.toggle('jammed', jammed);
   }
