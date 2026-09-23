@@ -58,7 +58,7 @@ export class MenuScreen {
     h('div', '', `<span>BEST RACE · ${laps} ${laps === 1 ? 'LAP' : 'LAPS'}</span><b>${br ? formatTime(br.time) : '--'}</b><em>${carName(br?.car ?? null)}</em>`, rec);
     h('div', '', `<span>BEST LAP</span><b>${r.bestLapTime ? formatTime(r.bestLapTime) : '--'}</b><em>${carName(r.bestLapCar)}</em>`, rec);
     h('div', '', `<span>WINS</span><b>${r.wins} / ${r.racesFinished}</b><em>races</em>`, rec);
-    h('div', 'footer', 'Desktop · keyboard + mouse · third-person view · add <code>?debug=true</code> to the URL for debug view', root);
+    h('div', 'footer', `Desktop · keyboard + mouse · add <code>?debug=true</code> to the URL for debug view · build ${__BUILD_STAMP__}`, root);
   }
 
   private showHowTo(): void {
