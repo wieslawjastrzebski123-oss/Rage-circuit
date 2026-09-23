@@ -68,7 +68,7 @@ export const WEAPONS: Record<WeaponId, WeaponStats> = {
     slot: 'secondary',
     description: 'Dropped behind you. Arms after a moment.',
     energyCost: 22,
-    cooldown: 2.6,
+    cooldown: 6,
     damage: 27,
     projectileSpeed: 0,
     ttl: 20,

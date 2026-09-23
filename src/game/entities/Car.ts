@@ -86,6 +86,8 @@ export class Car {
   driftBoostPower = 0;
   driftBoostColor = 0x5fb8ff;
   boosting = false;
+  /** set when the meter runs dry; cleared once the boost key is released */
+  private boostEmpty = false;
   boostPower = 0;
   /** extra visual yaw applied while drifting */
   bodyYaw = 0;
@@ -255,7 +257,7 @@ export class Car {
 
     // energy regen scales with speed – camping is not rewarded
     const spd = this.speed;
-    const regen = 1.5 + 13 * clamp(spd / this.stats.maxSpeed, 0, 1);
+    const regen = 0.75 + 6.5 * clamp(spd / this.stats.maxSpeed, 0, 1);
     this.energy = Math.min(this.maxEnergy, this.energy + regen * dt);
     this.boostMeter = Math.min(100, this.boostMeter + BOOST_PASSIVE * dt);
 
@@ -274,9 +276,14 @@ export class Car {
     let vF = this.vx * Math.cos(this.heading) + this.vy * Math.sin(this.heading);
 
     // -------- boost sources
-    const wantBoost = started && c.boost && this.boostMeter > (this.boosting ? 0 : 8);
+    // an empty meter cuts the boost until the key is let go (passive regen alone must not sustain it)
+    if (!c.boost) this.boostEmpty = false;
+    const wantBoost = started && c.boost && !this.boostEmpty && this.boostMeter > (this.boosting ? 0 : 8);
     this.boosting = wantBoost;
-    if (this.boosting) this.boostMeter = Math.max(0, this.boostMeter - BOOST_DRAIN * dt);
+    if (this.boosting) {
+      this.boostMeter = Math.max(0, this.boostMeter - BOOST_DRAIN * dt);
+      if (this.boostMeter <= 0) this.boostEmpty = true;
+    }
     let bp = 0;
     if (this.driftBoostTime > 0) bp = Math.max(bp, this.driftBoostPower);
     if (this.boosting) bp = Math.max(bp, 0.95);
@@ -475,11 +482,14 @@ export class Car {
     if (showFlame) {
       const flick = 0.8 + Math.random() * 0.4;
       m.flame.scale.set((0.7 + 0.5 * this.boostPower) * flick, 1, 1);
-      m.flameMat.color.setHex(this.driftBoostTime > 0 ? this.driftBoostColor : 0x5fb8ff);
+      // HDR colour so the flame catches the bloom on high quality
+      m.flameMat.color.setHex(this.driftBoostTime > 0 ? this.driftBoostColor : 0x5fb8ff).multiplyScalar(10);
       this.trailAcc += dt;
       if (this.trailAcc > 0.025) {
         this.trailAcc = 0;
-        this.world.effects.boostTrail(x - cos * 30, y - sin * 30, this.driftBoostTime > 0 ? this.driftBoostColor : 0x5fb8ff);
+        const fc = this.driftBoostTime > 0 ? this.driftBoostColor : 0x5fb8ff;
+        this.world.effects.boostTrail(x - cos * 30, y - sin * 30, fc);
+        if (Math.random() < 0.6) this.world.effects.exhaustSparks(x - cos * 28, y - sin * 28, cos, sin, fc);
       }
     }
 
@@ -515,7 +525,11 @@ export class Car {
       if (this.smokeAcc > (this.drifting ? 0.03 : 0.07)) {
         this.smokeAcc = 0;
         const tint = lvl > 0 ? DRIFT_LEVELS[lvl - 1].color : 0xbfc3cc;
-        this.world.effects.driftSmoke(x - cos * 20, y - sin * 20, tint, lvl > 0);
+        // one puff per rear wheel
+        const wx = -sin * 12.5;
+        const wy = cos * 12.5;
+        this.world.effects.driftSmoke(x - cos * 16 + wx, y - sin * 16 + wy, tint, lvl > 0, this.vx, this.vy);
+        this.world.effects.driftSmoke(x - cos * 16 - wx, y - sin * 16 - wy, tint, false, this.vx, this.vy);
       }
     }
   }

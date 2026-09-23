@@ -78,6 +78,12 @@ export class Gfx {
     u.mieDirectionalG.value = 0.82;
     this.sunDir.setFromSphericalCoords(1, Math.PI / 2 - SUN_ELEVATION, SUN_AZIMUTH);
     u.sunPosition.value.copy(this.sunDir);
+    // cap the visible sky below the bloom threshold – otherwise the bright haze around the sun
+    // floods the screen with glow (tone mapping makes the cap invisible)
+    this.sky.material.fragmentShader = this.sky.material.fragmentShader.replace(
+      'gl_FragColor = vec4( texColor, 1.0 );',
+      'gl_FragColor = vec4( min( texColor, vec3( 4.0 ) ), 1.0 );',
+    );
     this.scene.add(this.sky);
 
     // image-based lighting: paint and glass reflect the same sky the player sees

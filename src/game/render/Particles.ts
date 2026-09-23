@@ -16,16 +16,23 @@ export interface EmitOptions {
   color1?: number;
   drag?: number;
   gravity?: number;
+  /** colour multiplier; above 1 pushes the particle past the bloom threshold */
+  glow?: number;
+  /** sprite rotation speed (rad/s); particles start at a random angle */
+  spin?: number;
 }
 
 const VERT = `
 attribute float psize;
 attribute float palpha;
 attribute vec3 pcolor;
+attribute float prot;
 uniform float uScale;
 varying float vAlpha;
 varying vec3 vColor;
+varying vec2 vRot;
 void main() {
+  vRot = vec2(cos(prot), sin(prot));
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   gl_PointSize = psize * uScale / max(1.0, -mv.z);
   gl_Position = projectionMatrix * mv;
@@ -37,10 +44,15 @@ const FRAG = `
 uniform sampler2D map;
 varying float vAlpha;
 varying vec3 vColor;
+varying vec2 vRot;
 void main() {
-  vec4 t = texture2D(map, gl_PointCoord);
+  vec2 p = gl_PointCoord - 0.5;
+  p = vec2(vRot.x * p.x - vRot.y * p.y, vRot.y * p.x + vRot.x * p.y) + 0.5;
+  vec4 t = texture2D(map, p);
   gl_FragColor = vec4(vColor * t.rgb, t.a * vAlpha);
   if (gl_FragColor.a < 0.004) discard;
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }`;
 
 /**
@@ -67,6 +79,8 @@ export class Particles {
   private aSize: Float32Array;
   private aAlpha: Float32Array;
   private aColor: Float32Array;
+  private rot: Float32Array;
+  private spin: Float32Array;
   private geo: THREE.BufferGeometry;
   private tmp = new THREE.Color();
   private tmp2 = new THREE.Color();
@@ -88,11 +102,14 @@ export class Particles {
     this.aSize = new Float32Array(count);
     this.aAlpha = new Float32Array(count);
     this.aColor = new Float32Array(count * 3);
+    this.rot = new Float32Array(count);
+    this.spin = new Float32Array(count);
     this.geo = new THREE.BufferGeometry();
     this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('psize', new THREE.BufferAttribute(this.aSize, 1).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('palpha', new THREE.BufferAttribute(this.aAlpha, 1).setUsage(THREE.DynamicDrawUsage));
     this.geo.setAttribute('pcolor', new THREE.BufferAttribute(this.aColor, 3).setUsage(THREE.DynamicDrawUsage));
+    this.geo.setAttribute('prot', new THREE.BufferAttribute(this.rot, 1).setUsage(THREE.DynamicDrawUsage));
     this.material = new THREE.ShaderMaterial({
       uniforms: { map: { value: map }, uScale: { value: 500 } },
       vertexShader: VERT,
@@ -121,8 +138,11 @@ export class Particles {
     this.s1[i] = o.size1;
     this.a0[i] = o.alpha0 ?? 1;
     this.a1[i] = o.alpha1 ?? 0;
-    this.tmp.setHex(o.color0);
-    this.tmp2.setHex(o.color1 ?? o.color0);
+    const glow = o.glow ?? 1;
+    this.tmp.setHex(o.color0).multiplyScalar(glow);
+    this.tmp2.setHex(o.color1 ?? o.color0).multiplyScalar(glow);
+    this.rot[i] = Math.random() * Math.PI * 2;
+    this.spin[i] = (o.spin ?? 0) * (Math.random() < 0.5 ? -1 : 1);
     this.c0[i3] = this.tmp.r;
     this.c0[i3 + 1] = this.tmp.g;
     this.c0[i3 + 2] = this.tmp.b;
@@ -161,12 +181,13 @@ export class Particles {
         this.pos[i3 + 1] = 0.5;
         this.vel[i3 + 1] *= -0.3;
       }
+      this.rot[i] += this.spin[i] * dt;
       this.aSize[i] = this.s0[i] + (this.s1[i] - this.s0[i]) * t;
       this.aAlpha[i] = this.a0[i] + (this.a1[i] - this.a0[i]) * t;
       this.aColor[i3] = this.c0[i3] + (this.c1[i3] - this.c0[i3]) * t;
       this.aColor[i3 + 1] = this.c0[i3 + 1] + (this.c1[i3 + 1] - this.c0[i3 + 1]) * t;
       this.aColor[i3 + 2] = this.c0[i3 + 2] + (this.c1[i3 + 2] - this.c0[i3 + 2]) * t;
     }
-    for (const k of ['position', 'psize', 'palpha', 'pcolor']) (this.geo.attributes[k] as THREE.BufferAttribute).needsUpdate = true;
+    for (const k of ['position', 'psize', 'palpha', 'pcolor', 'prot']) (this.geo.attributes[k] as THREE.BufferAttribute).needsUpdate = true;
   }
 }

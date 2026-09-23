@@ -201,21 +201,23 @@ export class Effects {
     this.skids.instanceMatrix.needsUpdate = true;
   }
 
-  driftSmoke(x: number, y: number, tint: number, charged: boolean): void {
+  driftSmoke(x: number, y: number, tint: number, charged: boolean, vx = 0, vy = 0): void {
     this.norm.emit({
       x: x + rand(-4, 4),
       y: 3,
       z: y + rand(-4, 4),
-      vx: rand(-15, 15),
+      vx: vx * 0.25 + rand(-18, 18),
       vy: rand(12, 30),
-      vz: rand(-15, 15),
-      life: rand(0.5, 0.9),
-      size0: 14,
-      size1: 46,
-      alpha0: 0.55,
+      vz: vy * 0.25 + rand(-18, 18),
+      life: rand(0.8, 1.4),
+      size0: 12,
+      size1: rand(55, 75),
+      alpha0: 0.5,
       alpha1: 0,
-      color0: 0xc8ccd6,
-      drag: 1.5,
+      color0: 0xd4d7de,
+      color1: 0xaeb2ba,
+      drag: 1.8,
+      spin: rand(0.4, 1.4),
     });
     if (charged) {
       this.add.emit({
@@ -230,13 +232,34 @@ export class Effects {
         size1: 1,
         color0: tint,
         gravity: -500,
+        glow: 4,
       });
-      this.add.emit({ x, y: 2, z: y, life: 0.12, size0: 16, size1: 4, alpha0: 0.8, color0: tint });
+      this.add.emit({ x, y: 2, z: y, life: 0.12, size0: 16, size1: 4, alpha0: 0.8, color0: tint, glow: 2 });
     }
   }
 
   boostTrail(x: number, y: number, color: number): void {
-    this.add.emit({ x, y: 7, z: y, vy: 4, life: 0.28, size0: 14, size1: 0, alpha0: 0.9, color0: 0xffffff, color1: color });
+    this.add.emit({ x, y: 7, z: y, vy: 4, life: 0.28, size0: 14, size1: 0, alpha0: 0.9, color0: 0xffffff, color1: color, glow: 3 });
+  }
+
+  /** Hot sparks spat out of the exhaust while boosting. */
+  exhaustSparks(x: number, y: number, dirX: number, dirY: number, color: number): void {
+    const sp = rand(80, 220);
+    this.add.emit({
+      x,
+      y: 7,
+      z: y,
+      vx: -dirX * sp + rand(-50, 50),
+      vy: rand(20, 110),
+      vz: -dirY * sp + rand(-50, 50),
+      life: rand(0.15, 0.35),
+      size0: 4,
+      size1: 1,
+      color0: 0xffffff,
+      color1: color,
+      gravity: -500,
+      glow: 5,
+    });
   }
 
   driftRelease(car: Car, color: number, level: number): void {
@@ -244,7 +267,7 @@ export class Effects {
     const by = car.y - Math.sin(car.heading) * 22;
     this.shockwave(bx, by, 40 + level * 18, color, 260);
     for (let i = 0; i < 6 + level * 5; i++) {
-      this.add.emit({ x: bx, y: 5, z: by, vx: rand(-260, 260), vy: rand(40, 220), vz: rand(-260, 260), life: rand(0.2, 0.45), size0: 6, size1: 1, color0: color, gravity: -600 });
+      this.add.emit({ x: bx, y: 5, z: by, vx: rand(-260, 260), vy: rand(40, 220), vz: rand(-260, 260), life: rand(0.2, 0.45), size0: 6, size1: 1, color0: color, gravity: -600, glow: 4 });
     }
     if (car.isPlayer) {
       const labels = ['', 'BOOST', 'SUPER BOOST', 'ULTRA BOOST', 'MAX BOOST!'];
@@ -253,7 +276,8 @@ export class Effects {
   }
 
   wallSparks(x: number, y: number, nx: number, ny: number, strength: number): void {
-    const n = Math.min(18, 3 + Math.floor(strength / 40));
+    const n = Math.min(28, 5 + Math.floor(strength / 30));
+    this.add.emit({ x, y: 6, z: y, life: 0.08, size0: 22, size1: 6, color0: 0xffe8c0, glow: 3 });
     for (let i = 0; i < n; i++) {
       const s = rand(150, 420);
       this.add.emit({
@@ -269,6 +293,7 @@ export class Effects {
         color0: 0xffe0a0,
         color1: 0xff7020,
         gravity: -700,
+        glow: 5,
       });
     }
   }
@@ -276,13 +301,13 @@ export class Effects {
   // --------------------------------------------------------------- combat
   muzzle(x: number, y: number, angle: number, color: number, size: number): void {
     const h = 20;
-    this.add.emit({ x, y: h, z: y, life: size > 1 ? 0.12 : 0.06, size0: size > 1 ? 44 : 18, size1: 6, color0: 0xffffff, color1: color });
+    this.add.emit({ x, y: h, z: y, life: size > 1 ? 0.12 : 0.06, size0: size > 1 ? 44 : 18, size1: 6, color0: 0xffffff, color1: color, glow: 4 });
     const c = Math.cos(angle);
     const s = Math.sin(angle);
     const n = size > 1 ? 6 : 1;
     for (let i = 0; i < n; i++) {
       const sp = rand(200, 500);
-      this.add.emit({ x, y: h, z: y, vx: c * sp + rand(-60, 60), vy: rand(0, 60), vz: s * sp + rand(-60, 60), life: rand(0.06, 0.16), size0: 4, size1: 1, color0: color });
+      this.add.emit({ x, y: h, z: y, vx: c * sp + rand(-60, 60), vy: rand(0, 60), vz: s * sp + rand(-60, 60), life: rand(0.06, 0.16), size0: 4, size1: 1, color0: color, glow: 4 });
     }
     if (size > 1) {
       this.norm.emit({ x, y: h, z: y, vx: c * 60, vy: 20, vz: s * 60, life: 0.6, size0: 16, size1: 40, alpha0: 0.45, color0: 0x6a6d75, drag: 2 });
@@ -296,9 +321,9 @@ export class Effects {
     const n = big ? 12 : 4;
     for (let i = 0; i < n; i++) {
       const sp = rand(120, 380);
-      this.add.emit({ x, y: 10, z: y, vx: c * sp + rand(-160, 160), vy: rand(20, 200), vz: s * sp + rand(-160, 160), life: rand(0.12, 0.35), size0: 5, size1: 1, color0: color, gravity: -600 });
+      this.add.emit({ x, y: 10, z: y, vx: c * sp + rand(-160, 160), vy: rand(20, 200), vz: s * sp + rand(-160, 160), life: rand(0.12, 0.35), size0: 5, size1: 1, color0: color, gravity: -600, glow: 4 });
     }
-    this.add.emit({ x, y: 10, z: y, life: 0.08, size0: big ? 36 : 16, size1: 4, color0: color });
+    this.add.emit({ x, y: 10, z: y, life: 0.08, size0: big ? 36 : 16, size1: 4, color0: color, glow: 3 });
     if (big) {
       for (let i = 0; i < 5; i++) this.fireball(x, y, 0.6);
       for (let i = 0; i < 4; i++) this.debris(x, y);
@@ -323,6 +348,8 @@ export class Effects {
       color0: 0xfff0b0,
       color1: 0xff3a10,
       drag: 2.5,
+      glow: 2.5,
+      spin: rand(1, 3),
     });
   }
 
@@ -333,6 +360,7 @@ export class Effects {
   }
 
   explosion(x: number, y: number, size: number): void {
+    this.add.emit({ x, y: 14, z: y, life: 0.12, size0: 130 * size, size1: 60 * size, color0: 0xfff6e0, glow: 3 });
     const n = Math.round(16 * size);
     for (let i = 0; i < n; i++) this.fireball(x, y, size);
     for (let i = 0; i < Math.round(12 * size); i++) {
@@ -350,11 +378,16 @@ export class Effects {
         alpha1: 0,
         color0: 0x2e3036,
         drag: 1.2,
+        spin: rand(0.3, 1),
       });
     }
     for (let i = 0; i < Math.round(12 * size); i++) this.debris(x, y);
     for (let i = 0; i < Math.round(16 * size); i++) {
-      this.add.emit({ x, y: 10, z: y, vx: rand(-420, 420), vy: rand(60, 360), vz: rand(-420, 420), life: rand(0.2, 0.5), size0: 6, size1: 1, color0: 0xffc060, gravity: -700 });
+      this.add.emit({ x, y: 10, z: y, vx: rand(-420, 420), vy: rand(60, 360), vz: rand(-420, 420), life: rand(0.2, 0.5), size0: 6, size1: 1, color0: 0xffc060, gravity: -700, glow: 5 });
+    }
+    // embers: slow, glowing, drifting down after the blast
+    for (let i = 0; i < Math.round(14 * size); i++) {
+      this.add.emit({ x: x + rand(-30, 30), y: rand(20, 60), z: y + rand(-30, 30), vx: rand(-90, 90), vy: rand(60, 180), vz: rand(-90, 90), life: rand(1.2, 2.2), size0: 4, size1: 2, alpha0: 1, alpha1: 0, color0: 0xffb040, color1: 0xff3000, drag: 1.6, gravity: -60, glow: 4 });
     }
     this.shockwave(x, y, 90 * size, 0xffa040, 320);
     this.flash(x, y, 0xff9a40, 6 * size, 0.35);
@@ -381,14 +414,14 @@ export class Effects {
     for (let i = 0; i < 50; i++) {
       const a = rand(0, Math.PI * 2);
       const sp = rand(150, 520);
-      this.add.emit({ x, y: 8, z: y, vx: Math.cos(a) * sp, vy: rand(-20, 120), vz: Math.sin(a) * sp, life: rand(0.15, 0.4), size0: 7, size1: 1, color0: 0xb8f6ff, color1: 0x00a0ff });
+      this.add.emit({ x, y: 8, z: y, vx: Math.cos(a) * sp, vy: rand(-20, 120), vz: Math.sin(a) * sp, life: rand(0.15, 0.4), size0: 7, size1: 1, color0: 0xb8f6ff, color1: 0x00a0ff, glow: 4 });
     }
     this.flash(x, y, 0x00e5ff, 5, 0.3);
   }
 
   empHit(x: number, y: number): void {
     for (let i = 0; i < 16; i++) {
-      this.add.emit({ x: x + rand(-15, 15), y: rand(4, 20), z: y + rand(-15, 15), vx: rand(-80, 80), vy: rand(-40, 80), vz: rand(-80, 80), life: rand(0.1, 0.3), size0: 6, size1: 1, color0: 0x00e5ff });
+      this.add.emit({ x: x + rand(-15, 15), y: rand(4, 20), z: y + rand(-15, 15), vx: rand(-80, 80), vy: rand(-40, 80), vz: rand(-80, 80), life: rand(0.1, 0.3), size0: 6, size1: 1, color0: 0x00e5ff, glow: 4 });
     }
   }
 
@@ -412,7 +445,7 @@ export class Effects {
   pickup(x: number, y: number, color: number): void {
     this.shockwave(x, y, 60, color, 300);
     for (let i = 0; i < 14; i++) {
-      this.add.emit({ x, y: 12, z: y, vx: rand(-200, 200), vy: rand(50, 250), vz: rand(-200, 200), life: rand(0.2, 0.45), size0: 7, size1: 1, color0: color, gravity: -500 });
+      this.add.emit({ x, y: 12, z: y, vx: rand(-200, 200), vy: rand(50, 250), vz: rand(-200, 200), life: rand(0.2, 0.45), size0: 7, size1: 1, color0: color, gravity: -500, glow: 4 });
     }
   }
 
