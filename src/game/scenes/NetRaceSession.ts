@@ -40,7 +40,9 @@ import { createWeapon } from '../weapons';
 import { getTrack } from './RaceSession';
 
 /** Other cars are shown this far in the past so there are always two snapshots to blend. */
+/** base interpolation delay (s); grows automatically on a jittery connection */
 const INTERP = 0.1;
+const INTERP_MAX = 0.3;
 const INPUT_DT = 1 / TICK_RATE;
 const PROJ_KINDS: ProjectileKind[] = ['bullet', 'shell', 'rocket'];
 
@@ -99,6 +101,13 @@ export class NetRaceSession implements RaceInfo {
   private results: NetResults | null = null;
   private menu: HTMLElement | null = null;
   private smokeTimer = 0;
+  /** smoothed server clock: serverRaceTime ≈ now + clockOffset (null until the first snapshot) */
+  private clockOffset: number | null = null;
+  /** average lateness of snapshots against that clock (s) */
+  private lateness = 0;
+  private interpDelay = INTERP;
+  private interpTarget = INTERP;
+  private lastInterp = 0;
   private onKey = (e: KeyboardEvent) => {
     if (e.code === 'Escape') this.toggleMenu();
   };
@@ -205,7 +214,10 @@ export class NetRaceSession implements RaceInfo {
       case 's': {
         this.snaps.push({ recv: now, s: msg });
         if (this.snaps.length > 30) this.snaps.shift();
-        for (const e of msg.e) this.events.push({ at: now + INTERP, e });
+        // race time stands still during the countdown – only track the clock while racing
+        if (msg.ph === 1) this.trackClock(msg.rt - now);
+        else this.clockOffset = null;
+        for (const e of msg.e) this.events.push({ at: now + this.interpDelay, e });
         this.applyLatest(msg);
         this.reconcile(msg);
         break;
@@ -405,10 +417,33 @@ export class NetRaceSession implements RaceInfo {
     }
   }
 
+  /**
+   * Network jitter makes snapshots arrive in bursts. Instead of anchoring the render clock to the
+   * last arrival (which jumps with every late packet), follow the earliest-arrival clock smoothly
+   * and size the delay buffer from the measured lateness.
+   */
+  private trackClock(sample: number): void {
+    if (this.clockOffset === null || Math.abs(sample - this.clockOffset) > 1) {
+      this.clockOffset = sample; // first snapshot or a big jump (countdown → race)
+      this.lateness = 0;
+      return;
+    }
+    if (sample > this.clockOffset) this.clockOffset += (sample - this.clockOffset) * 0.5;
+    else this.clockOffset += (sample - this.clockOffset) * 0.01; // drift back slowly
+    const late = Math.max(0, this.clockOffset - sample);
+    this.lateness += (late - this.lateness) * (late > this.lateness ? 0.2 : 0.02);
+    this.interpTarget = Math.min(INTERP_MAX, INTERP + this.lateness * 2);
+  }
+
   private interpolate(now: number): void {
     const latest = this.snaps.at(-1);
     if (!latest) return;
-    const renderRt = latest.s.rt + (now - latest.recv) - INTERP;
+    // change the buffer gradually: the view slows down / speeds up a little instead of jumping
+    const dt = this.lastInterp ? Math.min(0.1, now - this.lastInterp) : 0;
+    this.lastInterp = now;
+    const step = 0.3 * dt;
+    this.interpDelay += Math.max(-step, Math.min(step, this.interpTarget - this.interpDelay));
+    const renderRt = (this.clockOffset === null ? latest.s.rt - now : this.clockOffset) + now - this.interpDelay;
     let a = this.snaps[0];
     let b = latest;
     for (let i = this.snaps.length - 1; i > 0; i--) {
@@ -477,7 +512,7 @@ export class NetRaceSession implements RaceInfo {
   private updateProjectiles(now: number): void {
     const latest = this.snaps.at(-1);
     if (!latest) return;
-    const age = now - latest.recv - INTERP;
+    const age = now - latest.recv - this.interpDelay;
     const root = this.gfx.root;
     const ps = latest.s.p;
     for (let i = 0; i < ps.length; i++) {
