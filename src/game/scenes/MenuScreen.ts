@@ -41,6 +41,10 @@ export class MenuScreen {
       this.click();
       this.app.showGarage();
     }, 'primary big');
+    button('MULTIPLAYER', col, () => {
+      this.click();
+      this.app.showOnline();
+    });
     button('HOW TO PLAY', col, () => {
       this.click();
       this.showHowTo();

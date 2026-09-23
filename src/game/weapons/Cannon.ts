@@ -17,7 +17,7 @@ export class Cannon extends Weapon {
     // recoil
     owner.vx -= Math.cos(a) * 30;
     owner.vy -= Math.sin(a) * 30;
-    if (owner.isPlayer) world.effects.shake(0.004, 90);
+    world.view(owner)?.effects.shake(0.004, 90);
     world.audio.shot('cannon', owner);
   }
 }

@@ -23,8 +23,9 @@ for (const g of Object.values(GEO)) g.userData.shared = true;
 
 interface Pickup {
   def: PickupDef;
-  group: THREE.Group;
-  gem: THREE.Mesh;
+  /** null when running headless */
+  group: THREE.Group | null;
+  gem: THREE.Mesh | null;
   timer: number;
 }
 
@@ -36,6 +37,10 @@ export class PickupSystem {
   constructor(world: World, defs: PickupDef[]) {
     this.world = world;
     for (const def of defs) {
+      if (!world.gfx) {
+        this.pickups.push({ def, group: null, gem: null, timer: 0 });
+        continue;
+      }
       const color = INFO[def.kind].color;
       const group = new THREE.Group();
       const gem = new THREE.Mesh(GEO[def.kind], new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.3, metalness: 0.2 }));
@@ -64,18 +69,35 @@ export class PickupSystem {
       if (p.timer > 0) {
         p.timer -= dt;
         const back = p.timer <= 0;
-        p.group.visible = back;
+        if (p.group) p.group.visible = back;
         if (back) w.effects.shockwave(p.def.x, p.def.y, 40, INFO[p.def.kind].color, 250);
         continue;
       }
-      p.gem.rotation.y = t * 2 + p.def.x;
-      p.gem.position.y = 16 + Math.sin(t * 3 + p.def.x) * 3;
+      if (p.gem) {
+        p.gem.rotation.y = t * 2 + p.def.x;
+        p.gem.position.y = 16 + Math.sin(t * 3 + p.def.x) * 3;
+      }
       for (const c of w.cars) {
         if (!c.alive || dist2(c.x, c.y, p.def.x, p.def.y) > (RADIUS + c.radius) ** 2) continue;
         this.collect(p, c);
         break;
       }
     }
+  }
+
+  /** Network display: availability from a snapshot + idle animation. */
+  showState(available: number[], t: number): void {
+    this.pickups.forEach((p, i) => {
+      const on = available[i] === 1;
+      if (p.group && p.group.visible !== on) {
+        p.group.visible = on;
+        if (on) this.world.effects.shockwave(p.def.x, p.def.y, 40, INFO[p.def.kind].color, 250);
+      }
+      if (p.gem) {
+        p.gem.rotation.y = t * 2 + p.def.x;
+        p.gem.position.y = 16 + Math.sin(t * 3 + p.def.x) * 3;
+      }
+    });
   }
 
   private collect(p: Pickup, c: Car): void {
@@ -92,12 +114,13 @@ export class PickupSystem {
         break;
     }
     p.timer = RESPAWN + Math.random() * 3;
-    p.group.visible = false;
+    if (p.group) p.group.visible = false;
     const info = INFO[p.def.kind];
     w.effects.pickup(p.def.x, p.def.y, info.color);
-    if (c.isPlayer) {
-      w.effects.floatText(c.x, c.y, info.label, info.color, 15);
-      w.audio.pickup();
+    const v = w.view(c);
+    if (v) {
+      v.effects.floatText(c.x, c.y, info.label, info.color, 15);
+      v.audio.pickup();
     }
   }
 }

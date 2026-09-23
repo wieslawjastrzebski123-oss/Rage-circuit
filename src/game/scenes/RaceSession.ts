@@ -105,6 +105,8 @@ export class RaceSession {
       collisions: null!,
       hud: null,
       player: null,
+      // solo: only the local player's car has a personal channel
+      view: (car) => (car === world.player ? { hud: world.hud, effects: world.effects, audio: world.audio } : null),
     };
     this.world = world;
     this.view = new TrackView(track, gfx.root);
@@ -141,7 +143,9 @@ export class RaceSession {
 
       this.hud = new HUD(track);
       world.hud = this.hud;
-      this.race.onPlayerFinish = () => this.onPlayerFinish();
+      this.race.onCarFinish = (car) => {
+        if (car === player) this.onPlayerFinish();
+      };
       audio.startEngine();
       setCrosshair(true);
       this.hud.announce('INDUSTRIAL DISTRICT', '#ff2d6f', 2200);
@@ -183,7 +187,7 @@ export class RaceSession {
     for (const c of this.world.cars) c.updateVisuals(frameDt);
     this.updateDemoFocus(frameDt);
     this.cam.update(frameDt, this.focus, fx);
-    this.world.gfx.follow(this.focus.x, this.focus.y);
+    this.world.gfx!.follow(this.focus.x, this.focus.y);
     this.smokeTimer -= frameDt;
     if (this.smokeTimer <= 0) {
       this.smokeTimer = 0.35;

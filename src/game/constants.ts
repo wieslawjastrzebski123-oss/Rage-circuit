@@ -5,7 +5,7 @@ export const GHOST_TIME = 1.2;
 export const RESET_PENALTY = 2;
 export const CAR_RADIUS = 19;
 
-export const DEBUG = new URLSearchParams(window.location.search).get('debug') === 'true';
+export const DEBUG = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === 'true';
 
 /** Weapons come online during the race */
 export const PRIMARY_UNLOCK_TIME = 7; // seconds after GO

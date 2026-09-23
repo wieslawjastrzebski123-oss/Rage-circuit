@@ -37,7 +37,7 @@ export class CombatSystem {
     let p = this.projectiles.find((q) => !q.active);
     if (!p) {
       if (this.projectiles.length >= MAX_PROJECTILES) return null;
-      p = new Projectile(this.world.gfx.root);
+      p = new Projectile(this.world.gfx?.root ?? null);
       this.projectiles.push(p);
     }
     p.fire(kind, owner, x, y, angle, speed, stats, dmgMul);
@@ -56,7 +56,7 @@ export class CombatSystem {
         m = this.mines.reduce((a, b) => (a.age > b.age ? a : b));
         m.kill();
       } else {
-        m = new Mine(this.world.gfx.root);
+        m = new Mine(this.world.gfx?.root ?? null);
         this.mines.push(m);
       }
     }
@@ -301,10 +301,11 @@ export class CombatSystem {
       target.lastHitBy = source;
       target.lastHitTime = w.time;
     }
-    if (kind !== 'wall' && (source?.isPlayer || target.isPlayer) && amount >= 1) {
-      w.effects.damageNumber(target.x, target.y, amount, target.isPlayer);
+    if (kind !== 'wall' && amount >= 1) {
+      w.view(target)?.effects.damageNumber(target.x, target.y, amount, true);
+      if (source && source !== target) w.view(source)?.effects.damageNumber(target.x, target.y, amount, false);
     }
-    if (target.isPlayer && amount >= 3) w.hud?.damageFlash(Math.min(1, amount / 30));
+    if (amount >= 3) w.view(target)?.hud?.damageFlash(Math.min(1, amount / 30));
     if (target.hp <= 0.01) this.kill(target, source);
     return amount;
   }
@@ -325,26 +326,41 @@ export class CombatSystem {
     w.effects.explosion(target.x, target.y, 1.5);
     w.effects.shakeAt(target.x, target.y, 0.02, 380);
     w.audio.explosion(target, 1.5);
-    if (target.isPlayer || killer?.isPlayer) w.effects.freeze(90);
+    const tv = w.view(target);
+    const kv = killer ? w.view(killer) : null;
+    tv?.effects.freeze(90);
+    if (kv !== tv) kv?.effects.freeze(90);
 
     if (killer) {
       killer.combat.kills++;
       killer.boostMeter = Math.min(100, killer.boostMeter + KILL_BOOST_REWARD);
       killer.energy = Math.min(killer.maxEnergy, killer.energy + KILL_ENERGY_REWARD);
-      if (killer.isPlayer) {
-        w.hud?.announce(`DESTROYED ${target.name}`, '#ffd23f');
-        w.audio.kill();
-      }
+      kv?.hud?.announce(`DESTROYED ${target.name}`, '#ffd23f');
+      kv?.audio.kill();
     }
-    if (target.isPlayer) {
-      w.hud?.announce(killer ? `WRECKED BY ${killer.name}` : 'WRECKED', '#ff5a5a');
-    } else if (killer && !killer.isPlayer) {
-      w.hud?.feed(`${killer.name} ✖ ${target.name}`);
-    } else if (!killer) {
-      w.hud?.feed(`${target.name} crashed`);
+    tv?.hud?.announce(killer ? `WRECKED BY ${killer.name}` : 'WRECKED', '#ff5a5a');
+    // everyone sees the kill feed; each HUD shows its own name as YOU
+    w.hud?.feed(killer ? `${killer.name} ✖ ${target.name}` : `${target.name} crashed`);
+  }
+
+  // ------------------------------------------------------------------ network
+  /** [kind(0 bullet, 1 shell, 2 rocket), x, y, vx, vy] for every live projectile */
+  snapshotProjectiles(): number[][] {
+    const kinds = { bullet: 0, shell: 1, rocket: 2 } as const;
+    const out: number[][] = [];
+    for (const p of this.projectiles) {
+      if (p.active) out.push([kinds[p.kind], Math.round(p.x), Math.round(p.y), Math.round(p.vx), Math.round(p.vy)]);
     }
-    if (killer?.isPlayer) w.hud?.feed(`YOU ✖ ${target.name}`);
-    if (target.isPlayer && killer) w.hud?.feed(`${killer.name} ✖ YOU`);
+    return out;
+  }
+
+  /** [x, y, age, armed, ownerCarId] for every live mine */
+  snapshotMines(): number[][] {
+    const out: number[][] = [];
+    for (const m of this.mines) {
+      if (m.active) out.push([Math.round(m.x), Math.round(m.y), Math.round(m.age * 100) / 100, m.armed ? 1 : 0, m.owner.id]);
+    }
+    return out;
   }
 
   clear(): void {

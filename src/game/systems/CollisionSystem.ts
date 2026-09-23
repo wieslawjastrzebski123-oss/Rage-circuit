@@ -33,7 +33,7 @@ export class CollisionSystem {
         const a = o.angle ?? 0;
         this.containers.push({ cx: o.x, cy: o.y, hw: (o.w ?? 100) / 2, hh: (o.h ?? 40) / 2, cos: Math.cos(a), sin: Math.sin(a) });
       } else {
-        this.barrels.push(new Barrel(world.gfx.root, o.x, o.y, o.kind === 'explosive'));
+        this.barrels.push(new Barrel(world.gfx?.root ?? null, o.x, o.y, o.kind === 'explosive'));
       }
     }
   }
@@ -48,6 +48,12 @@ export class CollisionSystem {
       for (let j = i + 1; j < cars.length; j++) this.carVsCar(cars[i], cars[j]);
     }
     this.updateBarrels(dt);
+  }
+
+  /** Walls and containers only – used by the client to predict its own car. */
+  resolveStatic(car: Car): void {
+    this.carVsWalls(car);
+    for (const box of this.containers) this.circleVsBox(car, box, true);
   }
 
   // ------------------------------------------------------------------ walls
@@ -87,7 +93,7 @@ export class CollisionSystem {
       w.effects.wallSparks(px, py, nx, ny, strength);
       if (strength > 170) w.audio.wallHit(car, strength);
     }
-    if (car.isPlayer && strength > 200) w.effects.shake(Math.min(0.012, strength / 60000), 120);
+    if (strength > 200) w.view(car)?.effects.shake(Math.min(0.012, strength / 60000), 120);
     if (strength > WALL_DAMAGE_THRESHOLD) w.combat.applyDamage(car, (strength - WALL_DAMAGE_THRESHOLD) * 0.04, null, 'wall');
   }
 
@@ -211,7 +217,8 @@ export class CollisionSystem {
       w.audio.carHit(a.isPlayer ? a : b, impact);
       a.onImpact(impact * 0.7);
       b.onImpact(impact * 0.7);
-      if (a.isPlayer || b.isPlayer) w.effects.shake(Math.min(0.012, impact / 50000), 130);
+      w.view(a)?.effects.shake(Math.min(0.012, impact / 50000), 130);
+      w.view(b)?.effects.shake(Math.min(0.012, impact / 50000), 130);
     }
     if (impact > RAM_DAMAGE_THRESHOLD) {
       const base = (impact - RAM_DAMAGE_THRESHOLD) * 0.04;

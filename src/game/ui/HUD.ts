@@ -1,6 +1,14 @@
 import type { Car } from '../entities/Car';
 import { DRIFT_LEVELS } from '../entities/Car';
-import type { RaceManager } from '../systems/RaceManager';
+/** What the HUD needs to know about the race (solo RaceManager or network mirror). */
+export interface RaceInfo {
+  phase: string;
+  raceTime: number;
+  laps: number;
+  standings: Car[];
+  positionOf(car: Car): number;
+  currentLap(car: Car): number;
+}
 import type { Track } from '../track/Track';
 import { formatTime } from '../utils/math';
 import { ABILITY_UNLOCK_LAP, ABILITY_UNLOCK_TIME_SHORT, PRIMARY_UNLOCK_TIME, SECONDARY_UNLOCK_LAP, SECONDARY_UNLOCK_TIME_SHORT } from '../constants';
@@ -56,6 +64,8 @@ export class HUD {
   private announceTimer = 0;
   private subTimer = 0;
   private last: Record<string, string> = {};
+  /** this player's car name – shown as YOU in the kill feed */
+  selfName = 'PLAYER';
 
   constructor(track: Track) {
     this.root = layer('hud');
@@ -182,6 +192,8 @@ export class HUD {
   }
 
   feed(text: string): void {
+    const self = this.selfName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    text = text.replace(new RegExp(`(^|\\s)${self}(?=\\s|$)`, 'g'), '$1YOU');
     const e = h('div', 'item', text, this.feedEl);
     setTimeout(() => e.classList.add('out'), 3200);
     setTimeout(() => e.remove(), 3800);
@@ -228,7 +240,7 @@ export class HUD {
   }
 
   // ------------------------------------------------------------ per-frame
-  update(dt: number, player: Car, race: RaceManager, cars: Car[]): void {
+  update(dt: number, player: Car, race: RaceInfo, cars: Car[]): void {
     if (this.announceTimer > 0) {
       this.announceTimer -= dt;
       if (this.announceTimer <= 0) this.center.classList.remove('show');

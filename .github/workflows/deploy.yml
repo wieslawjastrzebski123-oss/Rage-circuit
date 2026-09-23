@@ -32,6 +32,9 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # set this repository variable to your server, e.g. wss://rage-circuit-server.onrender.com
+          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

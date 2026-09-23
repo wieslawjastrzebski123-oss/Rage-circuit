@@ -29,6 +29,12 @@ export interface Records {
 const KEY_SETTINGS = 'rageCircuit.settings.v1';
 const KEY_LOADOUT = 'rageCircuit.loadout.v1';
 const KEY_RECORDS = 'rageCircuit.records.v1';
+const KEY_ONLINE = 'rageCircuit.online.v1';
+
+export interface OnlinePrefs {
+  name: string;
+  server: string;
+}
 
 const DEFAULT_SETTINGS: Settings = { masterVolume: 0.7, sfxVolume: 0.8, cameraShake: 0.8, quality: 'high' };
 const DEFAULT_LOADOUT: Loadout = { car: 'viper', primary: 'machinegun', secondary: 'rocket', laps: 5 };
@@ -80,5 +86,11 @@ export const Storage = {
   },
   saveRecords(r: Records): void {
     write(KEY_RECORDS, r);
+  },
+  getOnline(fallbackServer: string): OnlinePrefs {
+    return read(KEY_ONLINE, { name: '', server: fallbackServer });
+  },
+  saveOnline(o: OnlinePrefs): void {
+    write(KEY_ONLINE, o);
   },
 };

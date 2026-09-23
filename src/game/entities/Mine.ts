@@ -23,9 +23,9 @@ export class Mine {
   age = 0;
   private group = new THREE.Group();
   private mat: THREE.MeshStandardMaterial;
-  private light: THREE.Sprite;
+  private light: THREE.Sprite | null = null;
 
-  constructor(root: THREE.Object3D) {
+  constructor(root: THREE.Object3D | null) {
     this.mat = new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.5, metalness: 0.6 });
     const body = new THREE.Mesh(GEO, this.mat);
     body.position.y = 2;
@@ -37,6 +37,7 @@ export class Mine {
       s.position.set(Math.cos(a) * 11, 3, Math.sin(a) * 11);
       this.group.add(s);
     }
+    if (!root) return; // headless: logic only
     this.light = new THREE.Sprite(new THREE.SpriteMaterial({ map: textures().soft, color: 0xffb000, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.light.position.y = 6;
     this.light.scale.set(22, 22, 1);
@@ -63,6 +64,7 @@ export class Mine {
   }
 
   sync(time: number): void {
+    if (!this.light) return;
     this.group.position.set(this.x, 0, this.y);
     this.group.rotation.y += 0.02;
     this.group.scale.setScalar(Math.min(1, 0.3 + this.age * 2.5));
@@ -72,6 +74,17 @@ export class Mine {
     m.color.setHex(this.armed ? 0xff2d2d : 0xffb000);
     const left = this.stats.ttl - this.age;
     m.opacity = (on ? 1 : 0.2) * (left < 2 ? 0.5 : 1);
+  }
+
+  /** Network display: position from a snapshot. */
+  show(x: number, y: number, age: number, armed: boolean, color: number, time: number): void {
+    this.x = x;
+    this.y = y;
+    this.age = armed ? Math.max(age, MINE_ARM_TIME) : age;
+    this.group.visible = true;
+    this.mat.emissive.setHex(color).multiplyScalar(0.25);
+    if (!this.stats) this.stats = { ttl: 20 } as WeaponStats;
+    this.sync(time);
   }
 
   kill(): void {

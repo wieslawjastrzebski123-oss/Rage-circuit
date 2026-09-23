@@ -28,8 +28,9 @@ export class RaceManager {
   private finishCount = 0;
   private passed: number[] = [];
   standings: Car[] = [];
-  onPlayerFinish: (() => void) | null = null;
-  private wrongWayShown = false;
+  /** called when any car crosses the line for the last time */
+  onCarFinish: ((car: Car) => void) | null = null;
+  private wrongWayShown = new Set<Car>();
 
   readonly laps: number;
 
@@ -92,12 +93,14 @@ export class RaceManager {
     this.updateStandings();
     this.updateRubberBand();
 
-    const p = w.player;
-    if (p && !p.race.finished) {
-      const wrong = p.race.wrongWayTime > 1.2;
-      if (wrong !== this.wrongWayShown) {
-        this.wrongWayShown = wrong;
-        w.hud?.setWrongWay(wrong);
+    for (const c of w.cars) {
+      const v = w.view(c);
+      if (!v || c.race.finished) continue;
+      const wrong = c.race.wrongWayTime > 1.2;
+      if (wrong !== this.wrongWayShown.has(c)) {
+        if (wrong) this.wrongWayShown.add(c);
+        else this.wrongWayShown.delete(c);
+        v.hud?.setWrongWay(wrong);
       }
     }
   }
@@ -106,7 +109,7 @@ export class RaceManager {
     const n = this.checkpoints.count;
     const r = car.race;
     if (k === 0 || k % n !== 0 || r.finished) {
-      if (car.isPlayer && k > 0) this.world.hud?.checkpointPing();
+      if (k > 0) this.world.view(car)?.hud?.checkpointPing();
       return;
     }
     // completed a lap
@@ -119,20 +122,19 @@ export class RaceManager {
       r.finishTime = this.raceTime;
       r.finishOrder = ++this.finishCount;
       car.ghostTime = 0;
-      if (car.isPlayer) {
-        this.world.hud?.setWrongWay(false);
-        this.onPlayerFinish?.();
-      } else this.world.hud?.feed(`${car.name} finished ${ordinalShort(r.finishOrder)}`);
+      this.world.view(car)?.hud?.setWrongWay(false);
+      this.world.hud?.feed(`${car.name} finished ${ordinalShort(r.finishOrder)}`);
+      this.onCarFinish?.(car);
       return;
     }
-    if (car.isPlayer) {
-      const w = this.world;
+    const v = this.world.view(car);
+    if (v) {
       const best = Math.min(...r.lapTimes);
       const isBest = lapTime <= best + 1e-6 && r.lapTimes.length > 1;
-      w.hud?.lapTime(formatTime(lapTime * 1000), isBest);
-      w.audio.lap();
-      if (r.lapsDone === this.laps - 1) w.hud?.announce('FINAL LAP', '#ff2d6f');
-      else w.hud?.announce(`LAP ${r.lapsDone + 1}`, '#00e5ff');
+      v.hud?.lapTime(formatTime(lapTime * 1000), isBest);
+      v.audio.lap();
+      if (r.lapsDone === this.laps - 1) v.hud?.announce('FINAL LAP', '#ff2d6f');
+      else v.hud?.announce(`LAP ${r.lapsDone + 1}`, '#00e5ff');
     }
   }
 
@@ -145,8 +147,9 @@ export class RaceManager {
       const lap = c.race.lapsDone + 1;
       const secondary = lap >= SECONDARY_UNLOCK_LAP || (short && t >= SECONDARY_UNLOCK_TIME_SHORT) || c.race.finished;
       const ability = lap >= ABILITY_UNLOCK_LAP || (short && t >= ABILITY_UNLOCK_TIME_SHORT) || c.race.finished;
-      if (c.isPlayer && !c.race.finished) {
-        const hud = this.world.hud;
+      const v = this.world.view(c);
+      if (v && !c.race.finished) {
+        const hud = v.hud;
         if (primary && !c.unlockPrimary) hud?.announce(`WEAPONS ONLINE`, '#7dff4a', 1300);
         // shown in the feed so it doesn't hide the lap-time message
         if (secondary && !c.unlockSecondary) hud?.feed(`🔓 ${c.secondary.name} UNLOCKED  [RMB / Q]`);

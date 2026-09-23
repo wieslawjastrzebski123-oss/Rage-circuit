@@ -2,16 +2,37 @@ import { CARS } from '../data/cars';
 import { AudioManager } from '../systems/AudioManager';
 import { button, h, hex, layer } from '../ui/dom';
 import { formatTime } from '../utils/math';
-import type { RaceResults } from './RaceSession';
-import type { App } from '../App';
+import type { CarId } from '../data/cars';
 
-const ORD = ['', '1ST', '2ND', '3RD', '4TH'];
+const ORD = ['', '1ST', '2ND', '3RD', '4TH', '5TH', '6TH'];
+
+/** Everything the results screen shows – filled by solo and online races alike. */
+export interface ResultsData {
+  position: number;
+  raceTime: number;
+  bestLap: number;
+  lapTimes: number[];
+  kills: number;
+  deaths: number;
+  damageDealt: number;
+  damageTaken: number;
+  standings: { name: string; color: number; time: number | null; player: boolean }[];
+  laps: number;
+  car: CarId;
+  newBestRace?: boolean;
+  newBestLap?: boolean;
+}
+
+export interface ResultsAction {
+  label: string;
+  run(): void;
+}
 
 /** RACE FINISHED overlay shown on top of the (still running) race. */
 export class ResultsScreen {
   private root: HTMLElement;
 
-  constructor(app: App, res: RaceResults) {
+  constructor(res: ResultsData, actions: ResultsAction[]) {
     const root = layer('menu results');
     this.root = root;
 
@@ -28,7 +49,7 @@ export class ResultsScreen {
     stat('DEATHS', String(res.deaths));
     stat('DAMAGE DEALT', String(Math.round(res.damageDealt)));
     stat('DAMAGE TAKEN', String(Math.round(res.damageTaken)));
-    stat('CAR', CARS[res.loadout.car].name);
+    stat('CAR', CARS[res.car].name);
 
     const laps = h('div', 'laps', undefined, panel);
     res.lapTimes.forEach((t, i) => {
@@ -48,18 +69,17 @@ export class ResultsScreen {
 
     const nav = h('div', 'nav', undefined, panel);
     const click = () => AudioManager.instance.click();
-    button('RESTART', nav, () => {
-      click();
-      app.startRace(res.loadout);
-    }, 'primary');
-    button('CHANGE CAR', nav, () => {
-      click();
-      app.showGarage();
-    });
-    button('MAIN MENU', nav, () => {
-      click();
-      app.showMenu();
-    });
+    actions.forEach((a, k) =>
+      button(
+        a.label,
+        nav,
+        () => {
+          click();
+          a.run();
+        },
+        k === 0 ? 'primary' : '',
+      ),
+    );
   }
 
   destroy(): void {

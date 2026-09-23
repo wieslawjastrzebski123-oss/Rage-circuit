@@ -30,7 +30,7 @@ export class Barrel {
   private mat: THREE.MeshStandardMaterial;
   private tilt = 0;
 
-  constructor(root: THREE.Object3D, x: number, y: number, explosive: boolean) {
+  constructor(root: THREE.Object3D | null, x: number, y: number, explosive: boolean) {
     this.x = this.homeX = x;
     this.y = this.homeY = y;
     this.explosive = explosive;
@@ -45,7 +45,7 @@ export class Barrel {
       this.group.add(band);
     }
     this.group.traverse((o) => ((o as THREE.Mesh).castShadow = true));
-    root.add(this.group);
+    root?.add(this.group);
     this.sync();
   }
 

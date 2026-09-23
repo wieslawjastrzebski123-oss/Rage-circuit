@@ -43,7 +43,7 @@ export class Blink extends Ability {
   protected activate(owner: Car, world: World): boolean {
     const { dist, dx, dy } = Blink.reach(owner, world);
     if (dist < 60) {
-      if (owner.isPlayer) world.hud?.flash('BLINK BLOCKED', '#ff5a5a', 600);
+      world.view(owner)?.hud?.flash('BLINK BLOCKED', '#ff5a5a', 600);
       return false;
     }
     const fromX = owner.x;

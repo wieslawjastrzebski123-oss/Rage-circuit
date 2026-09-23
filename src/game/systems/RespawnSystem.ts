@@ -11,7 +11,7 @@ export class RespawnSystem {
   private world: World;
   private race: RaceManager;
   private resetCooldown = new Map<Car, number>();
-  private hintShown = false;
+  private hintShown = new Set<Car>();
 
   constructor(world: World, race: RaceManager) {
     this.world = world;
@@ -26,7 +26,7 @@ export class RespawnSystem {
 
       if (!car.alive) {
         car.respawnTimer -= dt;
-        if (car.isPlayer) w.hud?.setRespawn(Math.max(0, car.respawnTimer));
+        w.view(car)?.hud?.setRespawn(Math.max(0, car.respawnTimer));
         if (car.respawnTimer <= 0) this.respawn(car);
         continue;
       }
@@ -38,14 +38,16 @@ export class RespawnSystem {
         this.reset(car);
         continue;
       }
-      if (car.isPlayer) {
+      const v = w.view(car);
+      if (v) {
         const trying = Math.abs(car.controls.throttle) > 0.1;
         if (trying && car.speed < 35 && car.frozenTime <= 0) car.stuckTime += dt;
         else car.stuckTime = Math.max(0, car.stuckTime - dt * 2);
         const hint = car.stuckTime > STUCK_HINT_TIME || car.race.wrongWayTime > 4;
-        if (hint !== this.hintShown) {
-          this.hintShown = hint;
-          w.hud?.setHint(hint ? 'STUCK? PRESS  R  TO RESET (2s penalty)' : null);
+        if (hint !== this.hintShown.has(car)) {
+          if (hint) this.hintShown.add(car);
+          else this.hintShown.delete(car);
+          v.hud?.setHint(hint ? 'STUCK? PRESS  R  TO RESET (2s penalty)' : null);
         }
         if (car.stuckTime > STUCK_AUTO_RESET) this.reset(car);
       }
@@ -85,7 +87,7 @@ export class RespawnSystem {
     car.setAlive(true);
     car.ghostTime = GHOST_TIME;
     this.world.effects.shockwave(car.x, car.y, 70, 0xffffff, 300);
-    if (car.isPlayer) this.world.hud?.setRespawn(null);
+    this.world.view(car)?.hud?.setRespawn(null);
   }
 
   /** Manual/automatic reset: back to the last checkpoint and held for a short penalty. */
@@ -95,10 +97,11 @@ export class RespawnSystem {
     car.ghostTime = RESET_PENALTY + GHOST_TIME;
     this.resetCooldown.set(car, RESET_PENALTY + 1);
     this.world.effects.shockwave(car.x, car.y, 60, 0xffd23f, 300);
-    if (car.isPlayer) {
-      this.hintShown = false;
-      this.world.hud?.setHint(null);
-      this.world.hud?.announce('RESET  +2s', '#ffd23f');
+    const v = this.world.view(car);
+    if (v) {
+      this.hintShown.delete(car);
+      v.hud?.setHint(null);
+      v.hud?.announce('RESET  +2s', '#ffd23f');
     }
   }
 }

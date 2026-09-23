@@ -25,11 +25,12 @@ export class EMP extends Ability {
       if (c.drifting) c.endDrift(false);
       world.effects.empHit(c.x, c.y);
       hits++;
-      if (c.isPlayer) world.hud?.flash('EMP – SYSTEMS JAMMED', '#00e5ff', 1100);
+      world.view(c)?.hud?.flash('EMP – SYSTEMS JAMMED', '#00e5ff', 1100);
     }
-    if (owner.isPlayer) {
-      world.effects.shake(0.005, 150);
-      if (hits > 0) world.hud?.flash(`EMP HIT ×${hits}`, '#00e5ff', 800);
+    const v = world.view(owner);
+    if (v) {
+      v.effects.shake(0.005, 150);
+      if (hits > 0) v.hud?.flash(`EMP HIT ×${hits}`, '#00e5ff', 800);
     }
     return true;
   }

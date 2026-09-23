@@ -1,0 +1,16 @@
+[Unit]
+Description=RAGE CIRCUIT multiplayer server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/rage-circuit
+Environment=NODE_ENV=production
+Environment=PORT=8787
+ExecStart=/opt/rage-circuit/node_modules/.bin/tsx server/index.ts
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

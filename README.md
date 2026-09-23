@@ -4,7 +4,8 @@ Arcade **combat racing in 3D, third-person view**, playable right in the browser
 Race three AI rivals through the sun-lit **Industrial District**: drift for boost, shoot in any direction,
 drop mines, fire homing rockets, fire your car's ability – and survive 1 to 10 laps.
 
-Frontend-only: no backend, no accounts, no database. Records and settings live in your browser's `localStorage`.
+Solo mode is frontend-only. **Online multiplayer** (up to 5 players + bots) uses a small authoritative Node.js server.
+No accounts, no database – records and settings live in your browser's `localStorage`.
 
 ## Features
 
@@ -32,6 +33,33 @@ Frontend-only: no backend, no accounts, no database. Records and settings live i
 - **Menus** – title, how-to-play, settings (master / SFX volume, camera shake, graphics quality), car select, loadout, results, pause.
 - **Local records** – best race time, best lap, wins.
 - **Debug mode** – add `?debug=true` to the URL: FPS, AI routes & targets, checkpoints, collision shapes, per-car stats.
+
+## Multiplayer
+
+- **MULTIPLAYER** in the main menu → nickname + server address → **CREATE ROOM** (you get a 4-letter code) or **JOIN** with a friend's code.
+- Lobby: everyone picks a car and weapons and presses **READY**; the host picks the lap count and starts. The grid has 6 cars – empty slots are bots.
+- The **server runs the whole race** (physics, weapons, damage, bots), so nobody can cheat by editing the page. Browsers only send key presses and mouse aim (60×/s) and receive the world state (30×/s).
+- Your own car is **predicted locally** for instant response and silently corrected by the server; rivals are smoothly interpolated.
+- A player who disconnects mid-race is replaced by a bot. The race closes 45 s after the first car finishes.
+
+### Run the server locally
+
+```bash
+npm run server
+```
+
+Starts the game server on `ws://localhost:8787`. Open the game (`npm run dev`) in two browser windows and use that address.
+
+`npx tsx scripts/prediction-test.ts` (with the server running) measures how well client prediction matches the server.
+
+### Host the server online (Render.com, free plan)
+
+1. Push the repo to GitHub.
+2. On render.com: **New → Blueprint**, pick the repository – `render.yaml` + `Dockerfile` set everything up.
+3. Copy the service address, e.g. `https://rage-circuit-server.onrender.com`, and use it as **`wss://rage-circuit-server.onrender.com`**.
+4. In GitHub: **Settings → Secrets and variables → Actions → Variables → New variable** `VITE_SERVER_URL` = that `wss://…` address. The next deploy pre-fills it in the MULTIPLAYER screen (players can still type another address).
+
+Free Render services sleep when idle – the first connection after a break can take ~30–60 s.
 
 ## Controls
 
@@ -91,6 +119,7 @@ The Vite `base` is set to `./` (relative paths), so the site works from any sub-
 ## Project structure
 
 ```
+server/                   multiplayer server: index.ts (WebSocket + rooms), Room.ts (lobby), ServerRace.ts (authoritative race)
 src/
   main.ts                 entry point
   style.css               menus + HUD styling
@@ -98,7 +127,8 @@ src/
     App.ts                screen flow (menu → garage → race → results) and render loop
     constants.ts          laps, respawn timings, debug flag
     render/               Three.js: renderer, sky & sun, chase camera, car models, particles, textures
-    scenes/               MenuScreen, GarageScreen, RaceSession, ResultsScreen, car previews
+    scenes/               MenuScreen, GarageScreen, RaceSession, ResultsScreen, OnlineScreen (connect + lobby), NetRaceSession
+    net/                  protocol shared by client and server, NetClient (WebSocket)
     entities/             Car, PlayerCar, AICar, Projectile, Mine, Barrel
     weapons/              Weapon base + MachineGun, Cannon, RocketLauncher, MineLayer
     abilities/            Ability base + Nitro, Shield, Blink, EMP
@@ -116,7 +146,10 @@ That keeps physics, collisions and AI simple and fast while the camera is fully 
 
 ## Known limitations
 
-- Single map and single-player only (no multiplayer).
+- Single map.
+- Multiplayer needs the Node server hosted somewhere (GitHub Pages can only host the client).
+- No matchmaking or public room list – you join with a room code.
+- Online: collisions with other cars are resolved by the server, so bumping a rival can cause a small visible correction.
 - Desktop only – no touch or gamepad controls.
 - Physics is intentionally arcade 2D (no jumps, ramps or real suspension; body roll/pitch are visual).
 - Bots don't use pickups on purpose and have simple, readable tactics.

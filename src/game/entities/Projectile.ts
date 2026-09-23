@@ -42,10 +42,12 @@ export class Projectile {
   trailAcc = 0;
   /** damage multiplier (Overcharge) */
   dmgMul = 1;
-  private mesh: THREE.Mesh;
-  private glow: THREE.Sprite;
+  // visuals are absent when simulating headless
+  private mesh: THREE.Mesh | null = null;
+  private glow: THREE.Sprite | null = null;
 
-  constructor(root: THREE.Object3D) {
+  constructor(root: THREE.Object3D | null) {
+    if (!root) return;
     this.mesh = new THREE.Mesh(GEO.bullet, MAT.bullet);
     this.mesh.visible = false;
     this.glow = new THREE.Sprite(
@@ -72,6 +74,7 @@ export class Projectile {
     this.ttl = stats.ttl;
     this.age = 0;
     this.trailAcc = 0;
+    if (!this.mesh || !this.glow) return;
     this.mesh.geometry = GEO[kind];
     this.mesh.material = MAT[kind];
     this.mesh.visible = true;
@@ -83,7 +86,27 @@ export class Projectile {
     this.sync();
   }
 
+  /** Network display: position the visuals from a server snapshot (no game logic). */
+  show(kind: ProjectileKind, x: number, y: number, vx: number, vy: number): void {
+    if (!this.mesh || !this.glow) return;
+    if (this.kind !== kind || !this.mesh.visible) {
+      this.kind = kind;
+      this.mesh.geometry = GEO[kind];
+      this.mesh.material = MAT[kind];
+      this.glow.material.color.setHex(GLOW_COLOR[kind]);
+      const s = kind === 'bullet' ? 14 : kind === 'shell' ? 30 : 34;
+      this.glow.scale.set(s, s, 1);
+    }
+    this.mesh.visible = this.glow.visible = true;
+    this.x = x;
+    this.y = y;
+    this.vx = vx;
+    this.vy = vy;
+    this.sync();
+  }
+
   sync(): void {
+    if (!this.mesh || !this.glow) return;
     this.mesh.position.set(this.x, HEIGHT, this.y);
     this.mesh.rotation.y = -Math.atan2(this.vy, this.vx);
     this.glow.position.set(this.x, HEIGHT, this.y);
@@ -91,8 +114,8 @@ export class Projectile {
 
   kill(): void {
     this.active = false;
-    this.mesh.visible = false;
-    this.glow.visible = false;
+    if (this.mesh) this.mesh.visible = false;
+    if (this.glow) this.glow.visible = false;
     this.target = null;
   }
 }

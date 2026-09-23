@@ -18,7 +18,7 @@ export class Overcharge extends Ability {
     owner.overchargeTime = OVERCHARGE_TIME;
     world.effects.shockwave(owner.x, owner.y, 70, 0xff7a2d, 250);
     world.audio.shield(owner);
-    if (owner.isPlayer) world.hud?.flash('OVERCHARGE', '#ff7a2d', 900);
+    world.view(owner)?.hud?.flash('OVERCHARGE', '#ff7a2d', 900);
     return true;
   }
 }

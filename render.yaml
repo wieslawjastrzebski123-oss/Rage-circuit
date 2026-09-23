@@ -1,0 +1,8 @@
+# One-click deploy of the multiplayer server on Render.com (Blueprint).
+services:
+  - type: web
+    name: rage-circuit-server
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true

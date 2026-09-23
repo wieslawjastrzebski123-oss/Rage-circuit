@@ -32,7 +32,7 @@ export class DebugOverlay {
     this.dyn = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false }));
     this.dyn.frustumCulled = false;
     this.dyn.renderOrder = 10;
-    world.gfx.root.add(this.dyn);
+    world.gfx!.root.add(this.dyn);
   }
 
   private buildStatic(): void {
@@ -75,7 +75,7 @@ export class DebugOverlay {
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     const lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false, transparent: true, opacity: 0.8 }));
     lines.renderOrder = 10;
-    this.world.gfx.root.add(lines);
+    this.world.gfx!.root.add(lines);
   }
 
   update(dt: number): void {

@@ -108,6 +108,8 @@ export class Car {
   stuckTime = 0;
   /** tiny acceleration bonus when far behind (set by RaceManager) */
   rubberBand = 1;
+  /** false for the client-side predicted car: weapons are fired by the server only */
+  simCombat = true;
 
   primary!: Weapon;
   secondary!: Weapon;
@@ -145,7 +147,8 @@ export class Car {
   lastHitTime = -99;
 
   // visuals
-  readonly model: CarModel;
+  /** null when simulating headless (server) */
+  readonly model: CarModel | null;
   aimAngle = 0;
   private skidAcc = 0;
   private smokeAcc = 0;
@@ -166,8 +169,8 @@ export class Car {
     this.hp = stats.hp;
     this.energy = stats.energy;
 
-    this.model = buildCarModel(stats);
-    world.gfx.root.add(this.model.root);
+    this.model = world.gfx ? buildCarModel(stats) : null;
+    if (this.model) world.gfx!.root.add(this.model.root);
   }
 
   // ---------------------------------------------------------------- helpers
@@ -257,7 +260,7 @@ export class Car {
     this.boostMeter = Math.min(100, this.boostMeter + BOOST_PASSIVE * dt);
 
     // combat input
-    if (started && this.canAct) {
+    if (started && this.canAct && this.simCombat) {
       this.aimAngle = Math.atan2(c.aimY - this.y, c.aimX - this.x);
       if (c.firePrimary) this.primary.tryFire(this, this.world);
       if (c.fireSecondary) this.secondary.tryFire(this, this.world);
@@ -384,9 +387,9 @@ export class Car {
       this.vx += c * 70 * L.power;
       this.vy += s * 70 * L.power;
       this.world.effects.driftRelease(this, L.color, lvl);
-      if (this.isPlayer) this.world.audio.boost(0.5 + lvl * 0.15);
-    } else if (!clean && lvl > 0 && this.isPlayer) {
-      this.world.hud?.flash('DRIFT LOST', '#ff5a5a', 700);
+      this.world.view(this)?.audio.boost(0.5 + lvl * 0.15);
+    } else if (!clean && lvl > 0) {
+      this.world.view(this)?.hud?.flash('DRIFT LOST', '#ff5a5a', 700);
     }
     this.driftTime = 0;
   }
@@ -400,6 +403,7 @@ export class Car {
   // ---------------------------------------------------------------- visuals
   updateVisuals(dt: number): void {
     const m = this.model;
+    if (!m) return;
     const x = this.x;
     const y = this.y;
     const alive = this.alive;
@@ -523,12 +527,13 @@ export class Car {
 
   setAlive(alive: boolean): void {
     this.alive = alive;
+    if (!this.model) return;
     if (alive) this.model.bodyMat.color.setHex(this.stats.color).multiplyScalar(0.8);
     else this.model.bodyMat.color.setHex(0x1a1614);
   }
 
   destroy(): void {
-    this.model.root.removeFromParent();
+    this.model?.root.removeFromParent();
   }
 
 }
