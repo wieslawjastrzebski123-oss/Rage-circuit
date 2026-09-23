@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { PathSample, Track } from './Track';
 import { textures } from '../render/Textures';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const WALL_H = 22;
 const WALL_T = 12;
@@ -47,6 +48,9 @@ export class TrackView {
     this.buildTrees();
     this.buildHills();
     this.buildLamps();
+    this.buildGroundPatches();
+    this.buildBushes();
+    this.buildPylons();
   }
 
   // ------------------------------------------------------------ helpers
@@ -555,6 +559,23 @@ export class TrackView {
     units.castShadow = true;
     this.group.add(units);
 
+    // antennas and masts on roughly a third of the roofs (near and skyline) – breaks up flat roof lines
+    const masts = buildings.filter(() => rnd() < 0.35);
+    const mastGeo = new THREE.CylinderGeometry(0.8, 1.4, 1, 5);
+    mastGeo.translate(0, 0.5, 0);
+    const mastMesh = new THREE.InstancedMesh(mastGeo, new THREE.MeshStandardMaterial({ color: 0x5c5f64, roughness: 0.5, metalness: 0.7 }), masts.length * 2);
+    let mi = 0;
+    for (const b of masts) {
+      for (let k = 0; k < 2; k++) {
+        const hh = (b.far ? 40 : 20) + rnd() * (b.far ? 70 : 40);
+        const sw = b.far ? 3 : 1.5;
+        m4.makeScale(sw, hh, sw).setPosition(b.x + b.w * (0.2 + rnd() * 0.6), b.ht, b.y + b.h * (0.2 + rnd() * 0.6));
+        mastMesh.setMatrixAt(mi++, m4);
+      }
+    }
+    mastMesh.count = mi;
+    this.group.add(mastMesh);
+
     // container stacks
     const containerCols = [0xa8472a, 0x2d5f96, 0x3c7340, 0x8d9096, 0xa07c26];
     const cont: { x: number; y: number; w: number; h: number; stack: number; col: number }[] = [];
@@ -583,6 +604,7 @@ export class TrackView {
     cmesh.castShadow = true;
     cmesh.receiveShadow = true;
     this.group.add(cmesh);
+    this.buildYardClutter(cont);
 
     // on-track obstacle containers
     for (const o of t.def.obstacles) {
@@ -597,6 +619,66 @@ export class TrackView {
       stripe.rotation.y = mesh.rotation.y;
       this.group.add(stripe);
     }
+  }
+
+  /** Oil drums, pallets and crates scattered at the foot of container stacks. */
+  private buildYardClutter(cont: { x: number; y: number; w: number; h: number }[]): void {
+    const rnd = this.rnd;
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const v = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0);
+    const col = new THREE.Color();
+    type P = { x: number; y: number; kind: 0 | 1 | 2; a: number };
+    const props: P[] = [];
+    for (const c of cont) {
+      if (rnd() > 0.55) continue;
+      const n = 1 + Math.floor(rnd() * 4);
+      for (let i = 0; i < n; i++) {
+        // along one of the long sides, just outside the container
+        const alongX = c.w > c.h;
+        const off = (rnd() < 0.5 ? -1 : 1) * ((alongX ? c.h : c.w) / 2 + 8 + rnd() * 10);
+        const cx = c.x + c.w / 2;
+        const cy = c.y + c.h / 2;
+        const x = alongX ? cx + (rnd() - 0.5) * c.w : cx + off;
+        const y = alongX ? cy + off : cy + (rnd() - 0.5) * c.h;
+        if (this.track.isDrivable(x, y) || !this.clear(x - 6, y - 6, 12, 12, 30)) continue;
+        props.push({ x, y, kind: Math.floor(rnd() * 3) as 0 | 1 | 2, a: rnd() * 6 });
+      }
+    }
+    const drumGeo = new THREE.CylinderGeometry(4, 4, 11, 10);
+    drumGeo.translate(0, 5.5, 0);
+    const palletGeo = new THREE.BoxGeometry(14, 2.5, 12);
+    palletGeo.translate(0, 1.25, 0);
+    const crateGeo = new THREE.BoxGeometry(10, 10, 10);
+    crateGeo.translate(0, 5, 0);
+    const kinds = [
+      { geo: drumGeo, mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.6 }), cols: [0x2d5f96, 0xa8472a, 0x3c7340, 0x8a8e94] },
+      { geo: palletGeo, mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }), cols: [0x9a7a52, 0x86683f] },
+      { geo: crateGeo, mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }), cols: [0xa7864f, 0x8f7040, 0xb59460] },
+    ];
+    kinds.forEach((k, ki) => {
+      const list = props.filter((p) => p.kind === ki);
+      if (!list.length) return;
+      const mesh = new THREE.InstancedMesh(k.geo, k.mat, ki === 0 ? list.length * 3 : list.length * 2);
+      let n = 0;
+      for (const p of list) {
+        // drums come in little clusters, pallets and crates in small stacks
+        const count = ki === 0 ? 1 + Math.floor(rnd() * 3) : 1 + Math.floor(rnd() * 2);
+        for (let i = 0; i < count; i++) {
+          q.setFromAxisAngle(up, p.a + i * 0.7);
+          const pos = ki === 0 ? v.set(p.x + (i % 2) * 8.5, 0, p.y + Math.floor(i / 2) * 8.5) : v.set(p.x, i * (ki === 1 ? 2.6 : 10), p.y);
+          m4.compose(pos, q, sc.set(1, 1, 1));
+          mesh.setMatrixAt(n, m4);
+          mesh.setColorAt(n, col.setHex(k.cols[Math.floor(rnd() * k.cols.length)]).multiplyScalar(0.85 + rnd() * 0.2));
+          n++;
+        }
+      }
+      mesh.count = n;
+      mesh.castShadow = mesh.receiveShadow = true;
+      this.group.add(mesh);
+    });
   }
 
   /** Grass / gravel verge between the barrier and the industrial yard. */
@@ -793,6 +875,165 @@ export class TrackView {
     });
     trunks.castShadow = leaves.castShadow = true;
     this.group.add(trunks, leaves);
+
+    // every third tree becomes a conifer: two stacked cones over the same trunk
+    const firs = spots.filter((_, i) => i % 3 === 1);
+    const coneA = new THREE.ConeGeometry(20, 42, 7);
+    coneA.translate(0, 46, 0);
+    const coneB = new THREE.ConeGeometry(14, 32, 7);
+    coneB.translate(0, 66, 0);
+    const firGeo = mergeGeometries([coneA, coneB]);
+    const firs3 = new THREE.InstancedMesh(firGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true }), firs.length);
+    const firGreens = [0x2f4a2a, 0x36532e, 0x2a4226];
+    firs.forEach((p, i) => {
+      q.setFromAxisAngle(v.set(0, 1, 0), rnd() * 6);
+      m4.compose(v.set(p.x, 0, p.y), q, sc.set(p.s, p.s * (1 + rnd() * 0.3), p.s));
+      firs3.setMatrixAt(i, m4);
+      firs3.setColorAt(i, c.setHex(firGreens[i % firGreens.length]));
+      // hide the round crown this conifer replaces
+      leaves.setMatrixAt(spots.indexOf(p), new THREE.Matrix4().makeScale(0, 0, 0));
+    });
+    firs3.castShadow = true;
+    this.group.add(firs3);
+  }
+
+  /** Irregular patches of grass, dirt and gravel breaking up the flat concrete yard. */
+  private buildGroundPatches(): void {
+    const t = this.track;
+    const rnd = this.rnd;
+    // a lumpy disc: radius wobbles around the rim so patches don't read as circles
+    const geo = new THREE.CircleGeometry(1, 24);
+    const pos = geo.attributes.position as THREE.BufferAttribute;
+    for (let i = 1; i < pos.count; i++) {
+      const a = Math.atan2(pos.getY(i), pos.getX(i));
+      const k = 0.85 + 0.12 * Math.sin(a * 2 + 0.6) + 0.08 * Math.sin(a * 3 + 2.1) + 0.04 * Math.sin(a * 5);
+      pos.setXY(i, pos.getX(i) * k, pos.getY(i) * k);
+    }
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshStandardMaterial({ map: textures().grass, color: 0xffffff, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const n = 260;
+    const mesh = new THREE.InstancedMesh(geo, mat, n);
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const v = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0);
+    const c = new THREE.Color();
+    // tints over the grass texture: lush, dry, dirt, gravel-grey
+    const tints = [0xe4ecd0, 0xfff0c0, 0xd8b890, 0xe0dcd4];
+    let k = 0;
+    for (let attempt = 0; attempt < 4000 && k < n; attempt++) {
+      const r = 40 + rnd() * 140;
+      const x = -800 + rnd() * (t.width + 1600);
+      const y = -800 + rnd() * (t.height + 1600);
+      if (!this.clear(x - r, y - r, r * 2, r * 2, 20)) continue;
+      q.setFromAxisAngle(up, rnd() * 6);
+      m4.compose(v.set(x, 0.15, y), q, sc.set(r, 1, r * (0.5 + rnd() * 0.6)));
+      mesh.setMatrixAt(k, m4);
+      mesh.setColorAt(k, c.setHex(tints[Math.floor(rnd() * tints.length)]));
+      k++;
+    }
+    mesh.count = k;
+    mesh.receiveShadow = true;
+    this.group.add(mesh);
+  }
+
+  /** Low shrubs dotted along the verges and around trees. */
+  private buildBushes(): void {
+    const t = this.track;
+    const rnd = this.rnd;
+    const spots: { x: number; y: number; s: number }[] = [];
+    for (let attempt = 0; attempt < 5000 && spots.length < 420; attempt++) {
+      const x = -200 + rnd() * (t.width + 400);
+      const y = -200 + rnd() * (t.height + 400);
+      if (!this.clear(x - 8, y - 8, 16, 16, 45) || this.overlaps(x - 8, y - 8, 16, 16, 4)) continue;
+      spots.push({ x, y, s: 0.6 + rnd() * 0.8 });
+    }
+    const geo = new THREE.IcosahedronGeometry(9, 0);
+    geo.scale(1.8, 1.05, 1.5);
+    geo.translate(0, 4, 0);
+    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true }), spots.length);
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const v = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    const c = new THREE.Color();
+    const cols = [0x55733a, 0x4a6633, 0x677f3f, 0x7a8546];
+    spots.forEach((p, i) => {
+      q.setFromAxisAngle(v.set(0, 1, 0), rnd() * 6);
+      m4.compose(v.set(p.x, 0, p.y), q, sc.set(p.s, p.s * (0.8 + rnd() * 0.5), p.s));
+      mesh.setMatrixAt(i, m4);
+      mesh.setColorAt(i, c.setHex(cols[Math.floor(rnd() * cols.length)]));
+    });
+    mesh.receiveShadow = true;
+    this.group.add(mesh);
+  }
+
+  /** A line of high-voltage pylons with sagging cables crossing the far landscape. */
+  private buildPylons(): void {
+    const t = this.track;
+    const rnd = this.rnd;
+    const cx = t.width / 2;
+    const cy = t.height / 2;
+    const steel = new THREE.MeshStandardMaterial({ color: 0x7a7e84, roughness: 0.6, metalness: 0.6 });
+    const cableMat = new THREE.LineBasicMaterial({ color: 0x2a2c30 });
+    // elliptical ring between the yard (<= +600) and the distant skyline (>= +1500)
+    const RX = t.width * 0.5 + 1050;
+    const RY = t.height * 0.5 + 1050;
+    const a0 = rnd() * Math.PI * 2;
+    const n = 16;
+    const tops: THREE.Vector3[] = [];
+    // tapered four-sided tower (reads as a lattice pylon at distance) + 2 cross arms
+    const H = 230;
+    const towerGeo = new THREE.CylinderGeometry(2.5, 17, H + 25, 4, 1);
+    towerGeo.rotateY(Math.PI / 4);
+    towerGeo.translate(0, (H + 25) / 2, 0);
+    const towers = new THREE.InstancedMesh(towerGeo, steel, n);
+    const arms = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), steel, n * 2);
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const v = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0);
+    for (let i = 0; i < n; i++) {
+      // an arc sweeping part of the way round the circuit
+      const a = a0 + (i / (n - 1)) * Math.PI * 1.1;
+      const px = cx + Math.cos(a) * RX;
+      const pz = cy + Math.sin(a) * RY;
+      // face along the local tangent of the ellipse
+      const yaw = -Math.atan2(Math.cos(a) * RY, -Math.sin(a) * RX);
+      q.setFromAxisAngle(up, yaw);
+      m4.compose(v.set(px, 0, pz), q, sc.set(1, 1, 1));
+      towers.setMatrixAt(i, m4);
+      for (let k = 0; k < 2; k++) {
+        m4.compose(v.set(px, H * (0.72 + k * 0.2), pz), q, sc.set(4, 4, k ? 70 : 100));
+        arms.setMatrixAt(i * 2 + k, m4);
+      }
+      tops.push(new THREE.Vector3(px, H * 0.72, pz));
+    }
+    towers.castShadow = arms.castShadow = true;
+    this.group.add(towers, arms);
+    // three sagging cables per span, hung from the lower arm tips
+    const pts: number[] = [];
+    for (let i = 0; i < n - 1; i++) {
+      const A = tops[i];
+      const B = tops[i + 1];
+      const dir = new THREE.Vector3().subVectors(B, A).setY(0).normalize();
+      const side = new THREE.Vector3(-dir.z, 0, dir.x);
+      for (const o of [-46, 0, 46]) {
+        let prev: THREE.Vector3 | null = null;
+        for (let s = 0; s <= 12; s++) {
+          const k = s / 12;
+          const p = new THREE.Vector3().lerpVectors(A, B, k).addScaledVector(side, o);
+          p.y -= Math.sin(k * Math.PI) * 45;
+          if (prev) pts.push(prev.x, prev.y, prev.z, p.x, p.y, p.z);
+          prev = p;
+        }
+      }
+    }
+    const cg = new THREE.BufferGeometry();
+    cg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    this.group.add(new THREE.LineSegments(cg, cableMat));
   }
 
   /** Low-poly hills on the horizon (softened by fog). */

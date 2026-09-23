@@ -13,6 +13,45 @@ export const FOG_COLOR = 0xa4b4c6;
 const SUN_ELEVATION = THREE.MathUtils.degToRad(38);
 const SUN_AZIMUTH = THREE.MathUtils.degToRad(-35);
 const SHADOW_RANGE = 750;
+/** ~15% fog at 2000 units, ~85% at the horizon hills (9000) */
+const FOG_DENSITY = 0.000166;
+
+/**
+ * Atmospheric fog replacing three's flat linear fog for every built-in material:
+ * grows smoothly with distance, thins out with altitude (tall buildings poke out of the haze)
+ * and warms up when looking towards the sun.
+ */
+function installAtmosphericFog(sunDir: THREE.Vector3): void {
+  const v = (n: number) => n.toFixed(4);
+  THREE.ShaderChunk.fog_pars_vertex = `#ifdef USE_FOG
+  varying float vFogDepth;
+  varying vec3 vFogWorld;
+#endif`;
+  THREE.ShaderChunk.fog_vertex = `#ifdef USE_FOG
+  vFogDepth = - mvPosition.z;
+  vFogWorld = cameraPosition + ( vec4( mvPosition.xyz, 0.0 ) * viewMatrix ).xyz;
+#endif`;
+  THREE.ShaderChunk.fog_pars_fragment = `#ifdef USE_FOG
+  uniform vec3 fogColor;
+  varying float vFogDepth;
+  varying vec3 vFogWorld;
+  #ifdef FOG_EXP2
+    uniform float fogDensity;
+  #else
+    uniform float fogNear;
+    uniform float fogFar;
+  #endif
+#endif`;
+  THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
+  vec3 fogRay = vFogWorld - cameraPosition;
+  float fogDist = length( fogRay );
+  float fogAmt = 1.0 - exp( - pow( fogDist * ${v(FOG_DENSITY)}, 1.6 ) );
+  fogAmt *= mix( 0.6, 1.0, exp( - max( vFogWorld.y, 0.0 ) / 900.0 ) );
+  float sunAmt = pow( max( dot( fogRay / max( fogDist, 1.0 ), vec3( ${v(sunDir.x)}, ${v(sunDir.y)}, ${v(sunDir.z)} ) ), 0.0 ), 6.0 );
+  vec3 fogCol = mix( fogColor, vec3( 1.0, 0.78, 0.52 ), sunAmt * 0.55 );
+  gl_FragColor.rgb = mix( gl_FragColor.rgb, fogCol, fogAmt );
+#endif`;
+}
 
 /** Final colour grade, run after tone mapping: a touch of contrast and saturation plus a soft vignette. */
 const GradeShader = {
@@ -65,6 +104,9 @@ export class Gfx {
     container.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 3, 12000);
+    this.sunDir.setFromSphericalCoords(1, Math.PI / 2 - SUN_ELEVATION, SUN_AZIMUTH);
+    installAtmosphericFog(this.sunDir);
+    // near/far are unused by the atmospheric fog chunk; the fog object just switches it on
     this.scene.fog = new THREE.Fog(FOG_COLOR, 3200, 11000);
     this.scene.add(this.root, this.camera);
 
@@ -76,7 +118,12 @@ export class Gfx {
     u.rayleigh.value = 2.2;
     u.mieCoefficient.value = 0.004;
     u.mieDirectionalG.value = 0.82;
-    this.sunDir.setFromSphericalCoords(1, Math.PI / 2 - SUN_ELEVATION, SUN_AZIMUTH);
+    // slow drifting cumulus
+    u.cloudCoverage.value = 0.38;
+    u.cloudDensity.value = 0.55;
+    u.cloudScale.value = 0.00022;
+    u.cloudSpeed.value = 0.00003;
+    u.cloudElevation.value = 0.55;
     u.sunPosition.value.copy(this.sunDir);
     // cap the visible sky below the bloom threshold – otherwise the bright haze around the sun
     // floods the screen with glow (tone mapping makes the cap invisible)
@@ -184,6 +231,7 @@ export class Gfx {
 
   render(): void {
     this.sky.position.copy(this.camera.position);
+    this.sky.material.uniforms.time.value = performance.now() / 1000;
     if (this.post) this.composer.render();
     // low quality: rendered directly, the canvas' own anti-aliasing applies
     else this.renderer.render(this.scene, this.camera);
