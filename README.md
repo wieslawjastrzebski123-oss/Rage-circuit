@@ -86,7 +86,7 @@ Touch devices get on-screen controls automatically (play in landscape – the ga
 | — | The car accelerates by itself |
 | BRAKE | Brake; hold to reverse |
 | DRIFT / BOOST | Same as SPACE / E |
-| FIRE / ALT / SKILL | Primary weapon / secondary weapon / car ability – aiming is automatic (nearest rival ahead); the primary also fires by itself when a rival is close ahead |
+| FIRE / ALT / SKILL | Primary weapon / secondary weapon / car ability – aiming is automatic (nearest rival ahead) |
 | ↺ / II | Reset to checkpoint / pause |
 
 The thumb can slide from one button to another without lifting. Phones start on the LOW graphics setting.

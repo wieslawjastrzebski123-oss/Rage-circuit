@@ -1668,47 +1668,47 @@ body.touch.in-race .touch-ctl {
 
 /*
  * Right-thumb cluster, fanned out from the bottom-right corner:
- *            SKILL   ALT    FIRE
  *           BRAKE   BOOST   DRIFT
+ *           SKILL    ALT    FIRE
  */
-.tbtn.drift {
+.tbtn.fire {
   --s: 1.3;
   right: var(--pad);
   bottom: 14px;
-  border-color: rgba(0, 229, 255, 0.7);
-  font-size: 13px;
-}
-
-.tbtn.boost {
-  --s: 1;
-  right: calc(var(--pad) + var(--b) * 1.3 + 18px);
-  bottom: 14px;
-  border-color: rgba(255, 176, 0, 0.75);
-}
-
-.tbtn.brake {
-  --s: 0.9;
-  right: calc(var(--pad) + var(--b) * 2.3 + 36px);
-  bottom: 14px;
-}
-
-.tbtn.fire {
-  --s: 1.15;
-  right: calc(var(--pad) + var(--b) * 0.07);
-  bottom: calc(14px + var(--b) * 1.3 + 18px);
   font-size: 13px;
 }
 
 .tbtn.alt {
   --s: 0.95;
-  right: calc(var(--pad) + var(--b) * 1.3 + 20px);
-  bottom: calc(14px + var(--b) + 26px);
+  right: calc(var(--pad) + var(--b) * 1.3 + 18px);
+  bottom: 14px;
 }
 
 .tbtn.ability {
   --s: 0.85;
-  right: calc(var(--pad) + var(--b) * 2.3 + 40px);
-  bottom: calc(14px + var(--b) * 0.9 + 26px);
+  right: calc(var(--pad) + var(--b) * 2.25 + 36px);
+  bottom: 14px;
+}
+
+.tbtn.drift {
+  --s: 1.15;
+  right: calc(var(--pad) + var(--b) * 0.07);
+  bottom: calc(14px + var(--b) * 1.3 + 18px);
+  border-color: rgba(0, 229, 255, 0.7);
+  font-size: 13px;
+}
+
+.tbtn.boost {
+  --s: 0.95;
+  right: calc(var(--pad) + var(--b) * 1.3 + 18px);
+  bottom: calc(14px + var(--b) * 0.95 + 26px);
+  border-color: rgba(255, 176, 0, 0.75);
+}
+
+.tbtn.brake {
+  --s: 0.9;
+  right: calc(var(--pad) + var(--b) * 2.25 + 36px);
+  bottom: calc(14px + var(--b) * 0.85 + 26px);
 }
 
 .tbtn.pause,

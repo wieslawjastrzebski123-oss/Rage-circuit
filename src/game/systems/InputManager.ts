@@ -107,8 +107,6 @@ export class InputManager {
     const target = this.findTarget?.(heading);
     out.aimX = target ? target.x : carX + Math.cos(heading) * 600;
     out.aimY = target ? target.y : carY + Math.sin(heading) * 600;
-    // auto-fire the primary weapon while a rival is close ahead – no need to hold FIRE while steering
-    if (target && Math.hypot(target.x - carX, target.y - carY) < 800) out.firePrimary = true;
   }
 
   destroy(): void {
