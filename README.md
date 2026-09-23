@@ -82,11 +82,11 @@ Touch devices get on-screen controls automatically (play in landscape – the ga
 
 | Control | Action |
 |---|---|
-| Left thumb (anywhere on the left half) | Floating stick – slide sideways to steer |
+| Left thumb (anywhere on the left half) | Floating stick – slide sideways to steer, push up to boost |
 | — | The car accelerates by itself |
 | BRAKE | Brake; hold to reverse |
 | DRIFT / BOOST | Same as SPACE / E |
-| FIRE / ALT / SKILL | Primary weapon / secondary weapon / car ability – aiming is automatic (nearest rival ahead) |
+| FIRE / ALT / SKILL | Primary weapon / secondary weapon / car ability – aiming is automatic (nearest rival ahead); the primary also fires by itself when a rival is close ahead |
 | ↺ / II | Reset to checkpoint / pause |
 
 The thumb can slide from one button to another without lifting. Phones start on the LOW graphics setting.

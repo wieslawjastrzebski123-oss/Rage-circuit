@@ -3,10 +3,12 @@ import { h, layer } from './dom';
 type Key = 'fire' | 'alt' | 'ability' | 'drift' | 'boost' | 'brake' | 'reset' | 'pause';
 
 /** thumb travel (px) for full steering lock – short, so turns come quickly */
-const STICK_RADIUS = 34;
-const DEADZONE = 0.06;
+const STICK_RADIUS = 46;
+const DEADZONE = 0.08;
 /** <1 makes small thumb movements steer harder (response curve) */
-const CURVE = 0.6;
+const CURVE = 0.8;
+/** pushing the stick this far up (px) triggers boost – frees the right thumb for shooting */
+const BOOST_PUSH = 38;
 
 /**
  * On-screen controls for phones/tablets (landscape).
@@ -17,6 +19,8 @@ const CURVE = 0.6;
 export class TouchControls {
   readonly root: HTMLElement;
   steer = 0;
+  /** stick pushed up */
+  stickBoost = false;
   private held = new Set<Key>();
   private buttons = new Map<Key, HTMLElement>();
   private pointers = new Map<number, Key | 'stick'>();
@@ -32,7 +36,7 @@ export class TouchControls {
     this.root = layer('touch-ctl');
     this.base = h('div', 'stick', undefined, this.root);
     this.knob = h('div', 'knob', undefined, this.base);
-    h('div', 'stick-hint', 'STEER', this.root);
+    h('div', 'stick-hint', 'STEER<b>▲ PUSH UP = BOOST</b>', this.root);
     const btn = (k: Key, label: string) => {
       const b = h('div', `tbtn ${k}`, `<b>${label}</b><i class="cd"></i>`, this.root);
       b.dataset.k = k;
@@ -113,7 +117,8 @@ export class TouchControls {
     if (cur === 'stick') {
       this.stickId = -1;
       this.steer = 0;
-      this.base.classList.remove('on');
+      this.stickBoost = false;
+      this.base.classList.remove('on', 'boost');
       this.knob.style.transform = '';
     }
     this.refresh();
@@ -124,17 +129,21 @@ export class TouchControls {
     const dy = y - this.stickY;
     const d = Math.hypot(dx, dy);
     // the base follows a thumb that wanders too far, so steering never "runs out"
-    if (d > STICK_RADIUS * 1.4) {
-      const k = (d - STICK_RADIUS * 1.4) / d;
+    let dyy = dy;
+    if (d > STICK_RADIUS * 1.6) {
+      const k = (d - STICK_RADIUS * 1.6) / d;
       this.stickX += dx * k;
       this.stickY += dy * k;
       this.base.style.transform = `translate(${this.stickX}px, ${this.stickY}px)`;
       dx = x - this.stickX;
+      dyy = y - this.stickY;
     }
+    this.stickBoost = dyy < -BOOST_PUSH;
+    this.base.classList.toggle('boost', this.stickBoost);
     const kx = Math.max(-1, Math.min(1, dx / STICK_RADIUS));
     const mag = Math.max(0, (Math.abs(kx) - DEADZONE) / (1 - DEADZONE));
     this.steer = Math.sign(kx) * Math.min(1, mag) ** CURVE;
-    this.knob.style.transform = `translateX(${kx * 34}px)`;
+    this.knob.style.transform = `translate(${kx * 34}px, ${Math.max(-40, Math.min(0, dyy))}px)`;
   }
 
   private refresh(): void {
@@ -166,6 +175,7 @@ export class TouchControls {
     this.pointers.clear();
     this.stickId = -1;
     this.steer = 0;
+    this.stickBoost = false;
     this.base.classList.remove('on');
     this.refresh();
   }

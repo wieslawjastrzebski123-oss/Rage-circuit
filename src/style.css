@@ -1578,8 +1578,28 @@ body.touch.in-race .touch-ctl {
   content: '◀  ';
 }
 
+.stick-hint b {
+  position: absolute;
+  left: 0;
+  right: -20px;
+  top: -18px;
+  white-space: nowrap;
+  letter-spacing: 0.1em;
+  font-size: 9px;
+  color: rgba(255, 176, 0, 0.6);
+}
+
 .stick-hint::after {
   content: '  ▶';
+}
+
+.stick.boost {
+  border-color: var(--amber);
+  box-shadow: 0 0 18px rgba(255, 176, 0, 0.6);
+}
+
+.stick.boost .knob {
+  background: rgba(255, 176, 0, 0.75);
 }
 
 .stick.on ~ .stick-hint {

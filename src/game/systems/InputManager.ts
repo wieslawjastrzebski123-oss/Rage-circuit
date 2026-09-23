@@ -99,7 +99,7 @@ export class InputManager {
     if (!up && !dn) out.throttle = t.down('brake') ? -1 : 1;
     if (!left && !right) out.steer = Math.round(t.steer * 50) / 50;
     out.drift ||= t.down('drift');
-    out.boost ||= t.down('boost');
+    out.boost ||= t.down('boost') || t.stickBoost;
     out.ability ||= t.down('ability');
     out.reset ||= t.down('reset');
     out.firePrimary ||= t.down('fire');
@@ -107,6 +107,8 @@ export class InputManager {
     const target = this.findTarget?.(heading);
     out.aimX = target ? target.x : carX + Math.cos(heading) * 600;
     out.aimY = target ? target.y : carY + Math.sin(heading) * 600;
+    // auto-fire the primary weapon while a rival is close ahead – no need to hold FIRE while steering
+    if (target && Math.hypot(target.x - carX, target.y - carY) < 800) out.firePrimary = true;
   }
 
   destroy(): void {

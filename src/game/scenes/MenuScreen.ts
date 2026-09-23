@@ -72,11 +72,11 @@ export class MenuScreen {
     h('h2', '', 'HOW TO PLAY', panel);
     const grid = h('div', 'howto', undefined, panel);
     const rows: [string, string][] = IS_TOUCH ? [
-      ['LEFT THUMB', 'Touch anywhere on the left half and slide sideways to steer'],
+      ['LEFT THUMB', 'Touch anywhere on the left half and slide sideways to steer. Push up to BOOST'],
       ['AUTO GAS', 'The car accelerates by itself. BRAKE slows down; hold it to reverse'],
       ['DRIFT', 'Hold while fast and turning to charge, release for a boost'],
       ['BOOST', 'Uses the Boost meter (fills from drifting, kills, pickups)'],
-      ['FIRE', 'Primary weapon (Machine Gun / Cannon) – aims at the rival ahead automatically'],
+      ['FIRE', 'Primary weapon (Machine Gun / Cannon) – fires and aims by itself when a rival is close ahead; hold to fire anytime'],
       ['ALT', 'Secondary weapon (Rocket / Mine)'],
       ['SKILL', 'Car ability (Overcharge / Shield / Blink / EMP)'],
       ['↺', 'Reset to last checkpoint (2 s penalty)'],
