@@ -361,8 +361,9 @@ export class NetRaceSession implements RaceInfo {
     const now = performance.now() / 1000;
     this.world.time += dt;
 
-    // fixed-rate input: sample, send, predict
-    this.inputAcc += dt;
+    // fixed-rate input: sample, send, predict. Uses real elapsed time (not the clamped frame dt),
+    // so a slow or hitching frame still sends 60 inputs/s and the server's queue never starves.
+    this.inputAcc = Math.min(this.inputAcc + Math.min(rawDt, 0.25), 0.25);
     while (this.inputAcc >= INPUT_DT) {
       this.inputAcc -= INPUT_DT;
       const c = this.pred.controls;

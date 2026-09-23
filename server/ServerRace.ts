@@ -206,7 +206,13 @@ export class ServerRace {
     // first input: start INPUT_BUFFER ticks behind it – a small jitter buffer so uneven packet
     // arrival doesn't starve the queue (own car is predicted, so this isn't felt)
     if (car.ack === 0) car.ack = Math.max(0, s - 1 - INPUT_BUFFER);
-    if (s <= car.ack) return; // late: that tick was already simulated with a repeated input
+    if (s <= car.ack) {
+      // slightly late: that tick was already simulated with a repeated input – drop it.
+      // Far behind (client stalled or runs slow): re-anchor to the client instead of ignoring it.
+      if (car.ack - s <= INPUT_BUFFER) return;
+      q.length = 0;
+      car.ack = Math.max(0, s - 1 - INPUT_BUFFER);
+    }
     q.push({ s, i });
     // client clock running ahead: resync to the buffer target instead of letting latency grow
     if (q.length > INPUT_BUFFER + 8) {
