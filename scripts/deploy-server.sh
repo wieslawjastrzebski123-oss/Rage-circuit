@@ -32,7 +32,12 @@ sudo cp deploy/nginx-rage-circuit.conf /etc/nginx/sites-available/rage-circuit
 sudo ln -sf /etc/nginx/sites-available/rage-circuit /etc/nginx/sites-enabled/rage-circuit
 sudo nginx -t
 sudo systemctl reload nginx
-sleep 2
-curl -fsS http://127.0.0.1/health && echo " <- game server healthy"
+# the server needs a few seconds to boot
+for i in $(seq 1 20); do
+  if curl -fsS http://127.0.0.1/health >/dev/null 2>&1; then echo "game server healthy"; exit 0; fi
+  sleep 1
+done
+echo "game server did not come up – check: sudo journalctl -u rage-circuit -n 50" >&2
+exit 1
 REMOTE
 echo "== done: http://${TARGET#*@}/"
