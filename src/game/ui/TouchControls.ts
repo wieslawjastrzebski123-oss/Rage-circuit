@@ -2,8 +2,11 @@ import { h, layer } from './dom';
 
 type Key = 'fire' | 'alt' | 'ability' | 'drift' | 'boost' | 'brake' | 'reset' | 'pause';
 
-const STICK_RADIUS = 56;
-const DEADZONE = 0.1;
+/** thumb travel (px) for full steering lock – short, so turns come quickly */
+const STICK_RADIUS = 34;
+const DEADZONE = 0.06;
+/** <1 makes small thumb movements steer harder (response curve) */
+const CURVE = 0.6;
 
 /**
  * On-screen controls for phones/tablets (landscape).
@@ -121,8 +124,8 @@ export class TouchControls {
     const dy = y - this.stickY;
     const d = Math.hypot(dx, dy);
     // the base follows a thumb that wanders too far, so steering never "runs out"
-    if (d > STICK_RADIUS * 1.6) {
-      const k = (d - STICK_RADIUS * 1.6) / d;
+    if (d > STICK_RADIUS * 1.4) {
+      const k = (d - STICK_RADIUS * 1.4) / d;
       this.stickX += dx * k;
       this.stickY += dy * k;
       this.base.style.transform = `translate(${this.stickX}px, ${this.stickY}px)`;
@@ -130,8 +133,8 @@ export class TouchControls {
     }
     const kx = Math.max(-1, Math.min(1, dx / STICK_RADIUS));
     const mag = Math.max(0, (Math.abs(kx) - DEADZONE) / (1 - DEADZONE));
-    this.steer = Math.sign(kx) * Math.min(1, mag);
-    this.knob.style.transform = `translateX(${kx * STICK_RADIUS}px)`;
+    this.steer = Math.sign(kx) * Math.min(1, mag) ** CURVE;
+    this.knob.style.transform = `translateX(${kx * 34}px)`;
   }
 
   private refresh(): void {
