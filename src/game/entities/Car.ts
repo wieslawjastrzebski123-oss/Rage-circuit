@@ -257,7 +257,7 @@ export class Car {
 
     // energy regen scales with speed – camping is not rewarded
     const spd = this.speed;
-    const regen = 0.75 + 6.5 * clamp(spd / this.stats.maxSpeed, 0, 1);
+    const regen = 0.3 + 2.6 * clamp(spd / this.stats.maxSpeed, 0, 1);
     this.energy = Math.min(this.maxEnergy, this.energy + regen * dt);
     this.boostMeter = Math.min(100, this.boostMeter + BOOST_PASSIVE * dt);
 
