@@ -38,6 +38,9 @@ import { INDUSTRIAL_DISTRICT } from '../src/game/track/TrackData';
 import { pick, shuffle } from '../src/game/utils/math';
 import { createWeapon } from '../src/game/weapons';
 
+/** input ticks the server holds back to absorb network jitter (4 × 16.7 ms ≈ 67 ms) */
+const INPUT_BUFFER = 4;
+
 let track: Track | null = null;
 const getTrack = () => (track ??= new Track(INDUSTRIAL_DISTRICT));
 
@@ -198,10 +201,20 @@ export class ServerRace {
 
   input(playerId: number, s: number, i: InputTuple): void {
     const q = this.inputQueues.get(playerId);
-    if (!q) return;
+    const car = this.humans.get(playerId);
+    if (!q || !car) return;
+    // first input: start INPUT_BUFFER ticks behind it – a small jitter buffer so uneven packet
+    // arrival doesn't starve the queue (own car is predicted, so this isn't felt)
+    if (car.ack === 0) car.ack = Math.max(0, s - 1 - INPUT_BUFFER);
+    if (s <= car.ack) return; // late: that tick was already simulated with a repeated input
     q.push({ s, i });
-    // keep latency bounded if the client runs ahead
-    while (q.length > 6) q.shift();
+    // client clock running ahead: resync to the buffer target instead of letting latency grow
+    if (q.length > INPUT_BUFFER + 8) {
+      const drop = q.length - INPUT_BUFFER;
+      const skipped = q.splice(0, drop);
+      car.ack = skipped[skipped.length - 1].s;
+      decodeInput(skipped[skipped.length - 1].i, car.controls);
+    }
   }
 
   /** Player left mid-race: a bot takes over their car. */
@@ -221,14 +234,15 @@ export class ServerRace {
   }
 
   private update(): void {
-    // apply one queued input per tick (repeat the last one if the queue ran dry)
+    // consume inputs strictly in sequence, one per tick. If the next one hasn't arrived,
+    // repeat the last controls *as* that sequence number – the client replays from `ack`,
+    // so server and prediction stay one-to-one and a late packet costs at most a tiny nudge.
     for (const [pid, car] of this.humans) {
+      if (car.aiControlled || car.ack === 0) continue;
       const q = this.inputQueues.get(pid)!;
-      const next = q.shift();
-      if (next && !car.aiControlled) {
-        decodeInput(next.i, car.controls);
-        car.ack = next.s;
-      }
+      const want = car.ack + 1;
+      if (q.length && q[0].s === want) decodeInput(q.shift()!.i, car.controls);
+      car.ack = want;
     }
     const dt = 1 / TICK_RATE / SUBSTEPS;
     for (let k = 0; k < SUBSTEPS; k++) this.step(dt);

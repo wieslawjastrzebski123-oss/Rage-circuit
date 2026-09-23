@@ -86,8 +86,6 @@ export class Car {
   driftBoostPower = 0;
   driftBoostColor = 0x5fb8ff;
   boosting = false;
-  /** set when the meter runs dry; cleared once the boost key is released */
-  private boostEmpty = false;
   boostPower = 0;
   /** extra visual yaw applied while drifting */
   bodyYaw = 0;
@@ -276,13 +274,13 @@ export class Car {
     let vF = this.vx * Math.cos(this.heading) + this.vy * Math.sin(this.heading);
 
     // -------- boost sources
-    // an empty meter cuts the boost until the key is let go (passive regen alone must not sustain it)
-    if (!c.boost) this.boostEmpty = false;
-    const wantBoost = started && c.boost && !this.boostEmpty && this.boostMeter > (this.boosting ? 0 : 8);
+    // an empty meter cuts the boost; restarting needs the usual 8 points, so passive regen alone
+    // can't sustain it. Uses only `boosting` + `boostMeter`, both synced, so online prediction agrees.
+    const wantBoost = started && c.boost && this.boostMeter > (this.boosting ? 0 : 8);
     this.boosting = wantBoost;
     if (this.boosting) {
       this.boostMeter = Math.max(0, this.boostMeter - BOOST_DRAIN * dt);
-      if (this.boostMeter <= 0) this.boostEmpty = true;
+      if (this.boostMeter <= 0) this.boosting = false;
     }
     let bp = 0;
     if (this.driftBoostTime > 0) bp = Math.max(bp, this.driftBoostPower);
