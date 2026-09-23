@@ -1,0 +1,173 @@
+import { h, layer } from './dom';
+
+type Key = 'fire' | 'alt' | 'ability' | 'drift' | 'boost' | 'brake' | 'reset' | 'pause';
+
+const STICK_RADIUS = 56;
+const DEADZONE = 0.1;
+
+/**
+ * On-screen controls for phones/tablets (landscape).
+ * Left thumb: a floating steering stick anywhere on the left half.
+ * Right thumb: FIRE / ALT / ABILITY / DRIFT / BOOST / BRAKE – the thumb can slide between buttons.
+ * The car accelerates by itself; BRAKE slows down and reverses.
+ */
+export class TouchControls {
+  readonly root: HTMLElement;
+  steer = 0;
+  private held = new Set<Key>();
+  private buttons = new Map<Key, HTMLElement>();
+  private pointers = new Map<number, Key | 'stick'>();
+  private stickId = -1;
+  private stickX = 0;
+  private stickY = 0;
+  private base: HTMLElement;
+  private knob: HTMLElement;
+  /** tapped the pause button */
+  onPause: (() => void) | null = null;
+
+  constructor() {
+    this.root = layer('touch-ctl');
+    this.base = h('div', 'stick', undefined, this.root);
+    this.knob = h('div', 'knob', undefined, this.base);
+    h('div', 'stick-hint', 'STEER', this.root);
+    const btn = (k: Key, label: string) => {
+      const b = h('div', `tbtn ${k}`, `<b>${label}</b><i class="cd"></i>`, this.root);
+      b.dataset.k = k;
+      this.buttons.set(k, b);
+      return b;
+    };
+    btn('fire', 'FIRE');
+    btn('alt', 'ALT');
+    btn('ability', 'SKILL');
+    btn('drift', 'DRIFT');
+    btn('boost', 'BOOST');
+    btn('brake', 'BRAKE');
+    btn('reset', '↺');
+    btn('pause', 'II');
+
+    const r = this.root;
+    r.addEventListener('pointerdown', this.onDown);
+    r.addEventListener('pointermove', this.onMove);
+    r.addEventListener('pointerup', this.onUp);
+    r.addEventListener('pointercancel', this.onUp);
+    r.addEventListener('lostpointercapture', this.onUp);
+    r.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  private keyAt(x: number, y: number): Key | null {
+    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    const b = el?.closest<HTMLElement>('.tbtn');
+    return b && this.root.contains(b) ? (b.dataset.k as Key) : null;
+  }
+
+  private onDown = (e: PointerEvent): void => {
+    e.preventDefault();
+    try {
+      this.root.setPointerCapture(e.pointerId); // keep receiving the finger's moves/ups
+    } catch {
+      /* pointer already gone */
+    }
+    const k = this.keyAt(e.clientX, e.clientY);
+    if (k === 'pause') {
+      this.onPause?.();
+      return;
+    }
+    if (k) {
+      this.pointers.set(e.pointerId, k);
+      this.refresh();
+      return;
+    }
+    if (e.clientX < window.innerWidth * 0.5 && this.stickId < 0) {
+      this.stickId = e.pointerId;
+      this.pointers.set(e.pointerId, 'stick');
+      this.stickX = e.clientX;
+      this.stickY = e.clientY;
+      this.base.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
+      this.base.classList.add('on');
+      this.moveStick(e.clientX, e.clientY);
+    }
+  };
+
+  private onMove = (e: PointerEvent): void => {
+    const cur = this.pointers.get(e.pointerId);
+    if (cur === undefined) return;
+    if (cur === 'stick') {
+      this.moveStick(e.clientX, e.clientY);
+      return;
+    }
+    // slide the thumb from one button to another (not onto pause/reset)
+    const k = this.keyAt(e.clientX, e.clientY);
+    if (k && k !== cur && k !== 'pause' && k !== 'reset') {
+      this.pointers.set(e.pointerId, k);
+      this.refresh();
+    }
+  };
+
+  private onUp = (e: PointerEvent): void => {
+    const cur = this.pointers.get(e.pointerId);
+    if (cur === undefined) return;
+    this.pointers.delete(e.pointerId);
+    if (cur === 'stick') {
+      this.stickId = -1;
+      this.steer = 0;
+      this.base.classList.remove('on');
+      this.knob.style.transform = '';
+    }
+    this.refresh();
+  };
+
+  private moveStick(x: number, y: number): void {
+    let dx = x - this.stickX;
+    const dy = y - this.stickY;
+    const d = Math.hypot(dx, dy);
+    // the base follows a thumb that wanders too far, so steering never "runs out"
+    if (d > STICK_RADIUS * 1.6) {
+      const k = (d - STICK_RADIUS * 1.6) / d;
+      this.stickX += dx * k;
+      this.stickY += dy * k;
+      this.base.style.transform = `translate(${this.stickX}px, ${this.stickY}px)`;
+      dx = x - this.stickX;
+    }
+    const kx = Math.max(-1, Math.min(1, dx / STICK_RADIUS));
+    const mag = Math.max(0, (Math.abs(kx) - DEADZONE) / (1 - DEADZONE));
+    this.steer = Math.sign(kx) * Math.min(1, mag);
+    this.knob.style.transform = `translateX(${kx * STICK_RADIUS}px)`;
+  }
+
+  private refresh(): void {
+    this.held.clear();
+    for (const k of this.pointers.values()) if (k !== 'stick') this.held.add(k);
+    for (const [k, b] of this.buttons) b.classList.toggle('down', this.held.has(k));
+  }
+
+  down(k: Key): boolean {
+    return this.held.has(k);
+  }
+
+  /** Mirror a weapon slot's state (from the HUD) on its button. */
+  setSlot(k: 'fire' | 'alt' | 'ability', label: string, cd: number, ready: boolean, locked: boolean): void {
+    const b = this.buttons.get(k)!;
+    const txt = locked ? '🔒' : label;
+    const bEl = b.firstElementChild as HTMLElement;
+    if (bEl.textContent !== txt) bEl.textContent = txt;
+    b.classList.toggle('ready', ready);
+    b.classList.toggle('locked', locked);
+    b.style.setProperty('--cd', Math.max(0, Math.min(1, cd)).toFixed(3));
+  }
+
+  setLock(on: boolean): void {
+    this.buttons.get('fire')!.classList.toggle('lock', on);
+  }
+
+  release(): void {
+    this.pointers.clear();
+    this.stickId = -1;
+    this.steer = 0;
+    this.base.classList.remove('on');
+    this.refresh();
+  }
+
+  destroy(): void {
+    this.root.remove();
+  }
+}

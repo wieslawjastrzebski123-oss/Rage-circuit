@@ -1,12 +1,20 @@
 import './style.css';
 import { App } from './game/App';
 import { DEBUG } from './game/constants';
+import { enterMobileFullscreen, IS_TOUCH } from './game/ui/device';
 
 // Custom crosshair follows the mouse (shown only during a race).
 const crosshair = document.getElementById('crosshair')!;
 window.addEventListener('mousemove', (e) => {
   crosshair.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
 });
+
+// Phones: menu taps switch to fullscreen (hides the browser bars; Android only).
+if (IS_TOUCH) {
+  document.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).closest?.('.btn')) enterMobileFullscreen();
+  });
+}
 
 // Give the web fonts a moment so canvas-drawn labels use them.
 const fontsReady = document.fonts?.ready ?? Promise.resolve();

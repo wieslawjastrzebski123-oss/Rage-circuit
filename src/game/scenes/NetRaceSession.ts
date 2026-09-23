@@ -174,10 +174,14 @@ export class NetRaceSession implements RaceInfo {
     pw.cars.push(this.pred);
 
     this.input = new InputManager(gfx);
+    // touch auto-aim picks rivals from the displayed (server) positions
+    this.input.findTarget = (heading) => this.world.combat.findTargetInCone(this.me, heading, 0.45, 1000);
+    if (this.input.touch) this.input.touch.onPause = () => this.toggleMenu();
     this.cam = new ChaseCamera(gfx, track);
     this.hud = new HUD(track);
     this.hud.selfName = mySetup.name;
     world.hud = this.hud;
+    this.hud.touch = this.input.touch;
     this.hud.announce('INDUSTRIAL DISTRICT', '#ff2d6f', 2200);
     audio.startEngine();
     setCrosshair(true);
@@ -353,7 +357,7 @@ export class NetRaceSession implements RaceInfo {
       if (this.menu) {
         c.throttle = c.steer = 0;
         c.drift = c.boost = c.firePrimary = c.fireSecondary = c.ability = c.reset = false;
-      } else this.input.read(c, this.pred.x, this.pred.y);
+      } else this.input.read(c, this.pred.x, this.pred.y, this.pred.heading);
       this.seq++;
       this.net.send({ t: 'in', s: this.seq, i: encodeInput(c) });
       if (!this.ownFinished) {
@@ -389,7 +393,9 @@ export class NetRaceSession implements RaceInfo {
     const screech = me.alive && (me.drifting || (me.controls.throttle < 0 && me.forwardSpeed > 250)) ? 1 : 0;
     a.updateEngine(me.alive ? me.speed / me.stats.maxSpeed : 0, me.alive ? me.controls.throttle : 0, me.boostPower, screech);
     const cross = document.getElementById('crosshair');
-    cross?.classList.toggle('lock', me.alive && this.world.combat.findTargetInCone(me, me.aimAngle, 0.12, 900) !== null);
+    const locked = me.alive && this.world.combat.findTargetInCone(me, me.aimAngle, 0.12, 900) !== null;
+    cross?.classList.toggle('lock', locked);
+    this.input.touch?.setLock(locked);
 
     if (this.resultsAt > 0 && now >= this.resultsAt && this.results) {
       this.resultsAt = -1;
@@ -517,6 +523,7 @@ export class NetRaceSession implements RaceInfo {
       return;
     }
     setCrosshair(false);
+    this.input.touch?.release();
     this.menu = layer('menu pause');
     const panel = h('div', 'panel', undefined, this.menu);
     h('h2', '', 'ONLINE RACE', panel);

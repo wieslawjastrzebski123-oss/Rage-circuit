@@ -21,6 +21,7 @@ import { Track } from '../track/Track';
 import { INDUSTRIAL_DISTRICT } from '../track/TrackData';
 import { TrackView } from '../track/TrackView';
 import { DebugOverlay } from '../ui/DebugOverlay';
+import { IS_TOUCH } from '../ui/device';
 import { HUD } from '../ui/HUD';
 import { button, h, layer, setCrosshair } from '../ui/dom';
 import { pick, shuffle } from '../utils/math';
@@ -84,6 +85,10 @@ export class RaceSession {
   private crosshair = document.getElementById('crosshair');
   private onKey = (e: KeyboardEvent) => this.handleKey(e);
   private onBlur = () => this.setPaused(true);
+  /** phones: pause when the app is switched away or the phone is turned upright */
+  private onPhoneChange = () => {
+    if (document.hidden || (IS_TOUCH && window.innerHeight > window.innerWidth)) this.setPaused(true);
+  };
 
   constructor(gfx: Gfx, loadout: Loadout | null, hooks: SessionHooks | null) {
     this.isDemo = loadout === null;
@@ -133,6 +138,8 @@ export class RaceSession {
       player.secondary = createWeapon(loadout.secondary);
       player.ability = createAbility(player.stats.ability);
       world.player = player;
+      this.input.findTarget = (heading) => world.combat.findTargetInCone(player, heading, 0.45, 1000);
+      if (this.input.touch) this.input.touch.onPause = () => this.setPaused(!this.paused);
       const bots = CAR_IDS.filter((id) => id !== loadout.car).map((id, i) => this.makeBot(id, personalities[i]));
       world.cars.push(player, ...bots);
       // player starts near the back – more to fight for
@@ -143,6 +150,7 @@ export class RaceSession {
 
       this.hud = new HUD(track);
       world.hud = this.hud;
+      this.hud.touch = this.input.touch;
       this.race.onCarFinish = (car) => {
         if (car === player) this.onPlayerFinish();
       };
@@ -151,6 +159,8 @@ export class RaceSession {
       this.hud.announce('INDUSTRIAL DISTRICT', '#ff2d6f', 2200);
       window.addEventListener('keydown', this.onKey);
       window.addEventListener('blur', this.onBlur);
+      window.addEventListener('resize', this.onPhoneChange);
+      document.addEventListener('visibilitychange', this.onPhoneChange);
     }
     for (const c of world.cars) {
       if (c instanceof AICar) c.racing.requestReset = () => this.respawn.reset(c);
@@ -245,6 +255,7 @@ export class RaceSession {
     if (!this.crosshair || !p) return;
     const locked = p.alive && this.world.combat.findTargetInCone(p, p.aimAngle, 0.12, 900) !== null;
     this.crosshair.classList.toggle('lock', locked);
+    this.input?.touch?.setLock(locked);
   }
 
   // ------------------------------------------------------------------ finish
@@ -315,6 +326,7 @@ export class RaceSession {
     this.paused = p;
     if (p) {
       this.world.audio.updateEngine(0, 0, 0, 0);
+      this.input?.touch?.release();
       setCrosshair(false);
       this.pauseLayer = layer('menu pause');
       const panel = h('div', 'panel', undefined, this.pauseLayer);
@@ -323,7 +335,7 @@ export class RaceSession {
       button('RESUME', col, () => this.setPaused(false), 'primary');
       button('RESTART RACE', col, () => this.hooks?.onRestart());
       button('MAIN MENU', col, () => this.hooks?.onMainMenu());
-      h('p', 'small', 'WASD drive · SPACE drift · E boost · Mouse aim · LMB/RMB fire · SHIFT ability · R reset', panel);
+      h('p', 'small', this.input?.touch ? 'Left thumb steers · the car accelerates by itself · weapons aim automatically' : 'WASD drive · SPACE drift · E boost · Mouse aim · LMB/RMB fire · SHIFT ability · R reset', panel);
     } else {
       this.pauseLayer?.remove();
       this.pauseLayer = null;
@@ -335,6 +347,8 @@ export class RaceSession {
   destroy(): void {
     window.removeEventListener('keydown', this.onKey);
     window.removeEventListener('blur', this.onBlur);
+    window.removeEventListener('resize', this.onPhoneChange);
+    document.removeEventListener('visibilitychange', this.onPhoneChange);
     this.pauseLayer?.remove();
     this.hud?.destroy();
     this.debug?.destroy();

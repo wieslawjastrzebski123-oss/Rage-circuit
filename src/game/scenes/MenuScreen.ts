@@ -1,3 +1,4 @@
+import { IS_TOUCH } from '../ui/device';
 import { CARS } from '../data/cars';
 import { AudioManager } from '../systems/AudioManager';
 import { button, h, layer } from '../ui/dom';
@@ -62,7 +63,7 @@ export class MenuScreen {
     h('div', '', `<span>BEST RACE · ${laps} ${laps === 1 ? 'LAP' : 'LAPS'}</span><b>${br ? formatTime(br.time) : '--'}</b><em>${carName(br?.car ?? null)}</em>`, rec);
     h('div', '', `<span>BEST LAP</span><b>${r.bestLapTime ? formatTime(r.bestLapTime) : '--'}</b><em>${carName(r.bestLapCar)}</em>`, rec);
     h('div', '', `<span>WINS</span><b>${r.wins} / ${r.racesFinished}</b><em>races</em>`, rec);
-    h('div', 'footer', `Desktop · keyboard + mouse · add <code>?debug=true</code> to the URL for debug view · build ${__BUILD_STAMP__}`, root);
+    h('div', 'footer', `${IS_TOUCH ? 'Touch controls · play in landscape' : 'Desktop · keyboard + mouse'} · add <code>?debug=true</code> to the URL for debug view · build ${__BUILD_STAMP__}`, root);
   }
 
   private showHowTo(): void {
@@ -70,7 +71,17 @@ export class MenuScreen {
     const panel = h('div', 'panel wide', undefined, root);
     h('h2', '', 'HOW TO PLAY', panel);
     const grid = h('div', 'howto', undefined, panel);
-    const rows: [string, string][] = [
+    const rows: [string, string][] = IS_TOUCH ? [
+      ['LEFT THUMB', 'Touch anywhere on the left half and slide sideways to steer'],
+      ['AUTO GAS', 'The car accelerates by itself. BRAKE slows down; hold it to reverse'],
+      ['DRIFT', 'Hold while fast and turning to charge, release for a boost'],
+      ['BOOST', 'Uses the Boost meter (fills from drifting, kills, pickups)'],
+      ['FIRE', 'Primary weapon (Machine Gun / Cannon) – aims at the rival ahead automatically'],
+      ['ALT', 'Secondary weapon (Rocket / Mine)'],
+      ['SKILL', 'Car ability (Overcharge / Shield / Blink / EMP)'],
+      ['↺', 'Reset to last checkpoint (2 s penalty)'],
+      ['II', 'Pause'],
+    ] : [
       ['W / S', 'Throttle / brake & reverse'],
       ['A / D', 'Steer'],
       ['SPACE', 'Drift (while fast and turning). Hold to charge, release for a boost'],

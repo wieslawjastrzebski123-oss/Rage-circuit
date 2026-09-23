@@ -1,3 +1,4 @@
+import { IS_TOUCH } from '../ui/device';
 import {
   ABILITY_UNLOCK_LAP,
   ABILITY_UNLOCK_TIME_SHORT,
@@ -152,8 +153,8 @@ export class RaceManager {
         const hud = v.hud;
         if (primary && !c.unlockPrimary) hud?.announce(`WEAPONS ONLINE`, '#7dff4a', 1300);
         // shown in the feed so it doesn't hide the lap-time message
-        if (secondary && !c.unlockSecondary) hud?.feed(`🔓 ${c.secondary.name} UNLOCKED  [RMB / Q]`);
-        if (ability && !c.unlockAbility) hud?.feed(`🔓 ${c.abilityName} UNLOCKED  [SHIFT]`);
+        if (secondary && !c.unlockSecondary) hud?.feed(`🔓 ${c.secondary.name} UNLOCKED${IS_TOUCH ? '  [ALT]' : '  [RMB / Q]'}`);
+        if (ability && !c.unlockAbility) hud?.feed(`🔓 ${c.abilityName} UNLOCKED${IS_TOUCH ? '  [SKILL]' : '  [SHIFT]'}`);
       }
       c.unlockPrimary = primary;
       c.unlockSecondary = secondary;

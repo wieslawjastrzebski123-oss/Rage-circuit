@@ -12,7 +12,9 @@ export interface RaceInfo {
 import type { Track } from '../track/Track';
 import { formatTime } from '../utils/math';
 import { ABILITY_UNLOCK_LAP, ABILITY_UNLOCK_TIME_SHORT, PRIMARY_UNLOCK_TIME, SECONDARY_UNLOCK_LAP, SECONDARY_UNLOCK_TIME_SHORT } from '../constants';
+import { IS_TOUCH } from './device';
 import { h, hex, layer } from './dom';
+import type { TouchControls } from './TouchControls';
 
 interface Bar {
   fill: HTMLElement;
@@ -26,6 +28,7 @@ interface Slot {
 }
 
 const ORD = ['', 'st', 'nd', 'rd', 'th'];
+const TOUCH_LABEL: Record<string, string> = { fire: 'FIRE', alt: 'ALT', ability: 'SKILL' };
 
 /** In-race heads-up display rendered as HTML over the canvas. */
 export class HUD {
@@ -66,6 +69,8 @@ export class HUD {
   private last: Record<string, string> = {};
   /** this player's car name – shown as YOU in the kill feed */
   selfName = 'PLAYER';
+  /** on-screen buttons that mirror the weapon slots (touch devices) */
+  touch: TouchControls | null = null;
 
   constructor(track: Track) {
     this.root = layer('hud');
@@ -88,8 +93,8 @@ export class HUD {
     const bl = h('div', 'hud-bl', undefined, this.root);
     this.hp = this.bar(bl, 'HP', 'hp');
     this.energy = this.bar(bl, 'ENERGY', 'energy');
-    this.boost = this.bar(bl, 'BOOST  [E]', 'boost');
-    this.drift = h('div', 'hud-drift', '<span class="lbl">DRIFT [SPACE]</span>', bl);
+    this.boost = this.bar(bl, IS_TOUCH ? 'BOOST' : 'BOOST  [E]', 'boost');
+    this.drift = h('div', 'hud-drift', `<span class="lbl">${IS_TOUCH ? 'DRIFT' : 'DRIFT [SPACE]'}</span>`, bl);
     const pips = h('div', 'pips', undefined, this.drift);
     for (const L of DRIFT_LEVELS) {
       const p = h('div', 'pip', undefined, pips);
@@ -262,6 +267,8 @@ export class HUD {
     const best = player.race.lapTimes.length ? Math.min(...player.race.lapTimes) : 0;
     this.setText('bl', this.bestLap, `<span>BEST</span> ${formatTime(best * 1000)}`);
 
+    // online grids have more cars than the 4 rows built up front
+    while (this.boardRows.length < race.standings.length) this.boardRows.push(h('div', 'row', '', this.board));
     race.standings.forEach((c, i) => {
       const row = this.boardRows[i];
       if (!row) return;
@@ -333,6 +340,8 @@ export class HUD {
     this.setText(`${key}n`, s.info, lock ? `<b>${name}</b><span class="lock">🔒 ${lock}</span>` : `<b>${name}</b><span>${cost}</span>`);
     s.cd.style.transform = `scaleX(${Math.max(0, Math.min(1, cd)).toFixed(3)})`;
     const jammed = player.empTime > 0 || !player.alive;
+    const btn = key === 'p' ? 'fire' : key === 's' ? 'alt' : 'ability';
+    this.touch?.setSlot(btn, TOUCH_LABEL[btn], cd, !lock && cd <= 0 && affordable && !jammed, !!lock);
     s.root.classList.toggle('locked', !!lock);
     s.root.classList.toggle('ready', !lock && cd <= 0 && affordable && !jammed);
     s.root.classList.toggle('noenergy', !affordable);

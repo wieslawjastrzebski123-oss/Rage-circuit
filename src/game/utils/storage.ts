@@ -1,3 +1,4 @@
+import { IS_TOUCH } from '../ui/device';
 import type { CarId } from '../data/cars';
 import type { WeaponId } from '../data/weapons';
 
@@ -36,7 +37,7 @@ export interface OnlinePrefs {
   server: string;
 }
 
-const DEFAULT_SETTINGS: Settings = { masterVolume: 0.7, sfxVolume: 0.8, cameraShake: 0.8, quality: 'high' };
+const DEFAULT_SETTINGS: Settings = { masterVolume: 0.7, sfxVolume: 0.8, cameraShake: 0.8, quality: IS_TOUCH ? 'low' : 'high' }; // phones start on the lighter setting
 const DEFAULT_LOADOUT: Loadout = { car: 'viper', primary: 'machinegun', secondary: 'rocket', laps: 5 };
 const DEFAULT_RECORDS: Records = {
   bestRace: {},

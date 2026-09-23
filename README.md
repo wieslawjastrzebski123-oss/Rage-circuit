@@ -57,7 +57,7 @@ Starts the game server on `ws://localhost:8787`. Open the game (`npm run dev`) i
 1. Push the repo to GitHub.
 2. On render.com: **New → Blueprint**, pick the repository – `render.yaml` + `Dockerfile` set everything up.
 3. Copy the service address, e.g. `https://rage-circuit-server.onrender.com`, and use it as **`wss://rage-circuit-server.onrender.com`**.
-4. In GitHub: **Settings → Secrets and variables → Actions → Variables → New variable** `VITE_SERVER_URL` = that `wss://…` address. The next deploy pre-fills it in the MULTIPLAYER screen (players can still type another address).
+4. Build the client with `VITE_SERVER_URL=wss://… npm run build` so the MULTIPLAYER screen pre-fills that address (players can still type another one).
 
 Free Render services sleep when idle – the first connection after a break can take ~30–60 s.
 
@@ -76,7 +76,21 @@ Free Render services sleep when idle – the first connection after a break can 
 | R | Reset to last checkpoint (2 s penalty) |
 | ESC / P | Pause |
 
-Designed for desktop with keyboard + mouse.
+### Phones and tablets
+
+Touch devices get on-screen controls automatically (play in landscape – the game asks you to rotate the phone):
+
+| Control | Action |
+|---|---|
+| Left thumb (anywhere on the left half) | Floating stick – slide sideways to steer |
+| — | The car accelerates by itself |
+| BRAKE | Brake; hold to reverse |
+| DRIFT / BOOST | Same as SPACE / E |
+| FIRE / ALT / SKILL | Primary weapon / secondary weapon / car ability – aiming is automatic (nearest rival ahead) |
+| ↺ / II | Reset to checkpoint / pause |
+
+The thumb can slide from one button to another without lifting. Phones start on the LOW graphics setting.
+Add `?touch=true` to the URL to try the touch controls on a desktop.
 
 ## Tech stack
 
@@ -107,14 +121,16 @@ npm run build
 
 Type-checks the project and writes a static site to `dist/`. Preview it with `npm run preview`.
 
-## Deploy (GitHub Pages)
+## Deploy (own server)
 
-1. Push the repository to GitHub (branch `main`).
-2. In the repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-3. Every push to `main` runs `.github/workflows/deploy.yml` (checkout → Node 20 → `npm ci` → `npm run build` → deploy `dist`).
+`scripts/deploy-server.sh` copies the project to an Ubuntu server, builds it and installs the game server (systemd) and nginx:
 
-The Vite `base` is set to `./` (relative paths), so the site works from any sub-path such as
-`https://username.github.io/rage-circuit/` without changes.
+```bash
+SSH_KEY=/path/to/key ./scripts/deploy-server.sh ubuntu@SERVER_IP
+```
+
+nginx serves the game from `/opt/rage-circuit/dist` and forwards `/ws` to the game server, so the MULTIPLAYER screen connects to the same address automatically.
+The Vite `base` is `./` (relative paths), so the static build also works from any sub-path.
 
 ## Project structure
 
@@ -147,10 +163,10 @@ That keeps physics, collisions and AI simple and fast while the camera is fully 
 ## Known limitations
 
 - Single map.
-- Multiplayer needs the Node server hosted somewhere (GitHub Pages can only host the client).
+- Multiplayer needs the Node server hosted somewhere (a static host alone can only serve the client).
 - No matchmaking or public room list – you join with a room code.
 - Online: collisions with other cars are resolved by the server, so bumping a rival can cause a small visible correction.
-- Desktop only – no touch or gamepad controls.
+- No gamepad support.
 - Physics is intentionally arcade 2D (no jumps, ramps or real suspension; body roll/pitch are visual).
 - Bots don't use pickups on purpose and have simple, readable tactics.
 - Graphics are procedural low-poly; no imported models or textures.

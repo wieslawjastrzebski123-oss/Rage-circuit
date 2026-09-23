@@ -1,3 +1,4 @@
+import { IS_TOUCH } from '../ui/device';
 import { ABILITIES, CAR_IDS, CARS } from '../data/cars';
 import { PRIMARY_WEAPONS, SECONDARY_WEAPONS, WEAPONS, type WeaponId } from '../data/weapons';
 import { AudioManager } from '../systems/AudioManager';
@@ -76,14 +77,14 @@ export class GarageScreen {
       this.click();
       this.app.showMenu();
     });
-    h('div', 'hint-line', 'Click a car to continue', nav);
+    h('div', 'hint-line', IS_TOUCH ? 'Tap a car to continue' : 'Click a car to continue', nav);
   }
 
   private showLoadout(): void {
     const root = this.reset();
     const car = CARS[this.loadout.car];
     h('h1', 'screen-title', 'SELECT LOADOUT', root);
-    h('div', 'subtitle', `<b style="color:${hex(car.color)}">${car.name}</b> · ability: ${ABILITIES[car.ability].name} [SHIFT]`, root);
+    h('div', 'subtitle', `<b style="color:${hex(car.color)}">${car.name}</b> · ability: ${ABILITIES[car.ability].name} ${IS_TOUCH ? '' : '[SHIFT]'}`, root);
     const wrap = h('div', 'loadout', undefined, root);
     const group = (title: string, ids: WeaponId[], key: 'primary' | 'secondary', keyLabel: string) => {
       const g = h('div', 'group', undefined, wrap);
@@ -113,8 +114,8 @@ export class GarageScreen {
     // stored loadouts could hold a weapon in the wrong slot after data changes
     if (!PRIMARY_WEAPONS.includes(this.loadout.primary)) this.loadout.primary = 'machinegun';
     if (!SECONDARY_WEAPONS.includes(this.loadout.secondary)) this.loadout.secondary = 'rocket';
-    group('PRIMARY', PRIMARY_WEAPONS, 'primary', 'LEFT MOUSE');
-    group('SECONDARY', SECONDARY_WEAPONS, 'secondary', 'RIGHT MOUSE / Q');
+    group('PRIMARY', PRIMARY_WEAPONS, 'primary', IS_TOUCH ? 'FIRE' : 'LEFT MOUSE');
+    group('SECONDARY', SECONDARY_WEAPONS, 'secondary', IS_TOUCH ? 'ALT' : 'RIGHT MOUSE / Q');
 
     // race length
     if (!LAP_OPTIONS.includes(this.loadout.laps)) this.loadout.laps = DEFAULT_LAPS;

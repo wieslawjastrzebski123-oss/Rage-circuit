@@ -1,5 +1,7 @@
 import type { Controls } from '../entities/Car';
 import type { Gfx } from '../render/Gfx';
+import { IS_TOUCH } from '../ui/device';
+import { TouchControls } from '../ui/TouchControls';
 
 const MAX_AIM = 1100;
 const CAPTURED = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyE', 'KeyQ', 'KeyR']);
@@ -8,6 +10,7 @@ const CAPTURED = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRi
  * Keyboard + mouse → car controls.
  * WASD / arrows drive, SPACE drifts, E boosts, mouse aims,
  * LMB primary, RMB (or Q) secondary, SHIFT ability, R reset.
+ * On touch devices on-screen controls are added; aiming is automatic there.
  */
 export class InputManager {
   private gfx: Gfx;
@@ -15,6 +18,9 @@ export class InputManager {
   private buttons = 0;
   mouseX = window.innerWidth / 2;
   mouseY = window.innerHeight * 0.4;
+  readonly touch: TouchControls | null = IS_TOUCH ? new TouchControls() : null;
+  /** touch auto-aim: a rival roughly ahead of the car (set by the race session) */
+  findTarget: ((heading: number) => { x: number; y: number } | null) | null = null;
 
   private onKeyDown = (e: KeyboardEvent) => {
     this.keys.add(e.code);
@@ -34,6 +40,7 @@ export class InputManager {
   private onBlur = () => {
     this.keys.clear();
     this.buttons = 0;
+    this.touch?.release();
   };
 
   constructor(gfx: Gfx) {
@@ -70,7 +77,7 @@ export class InputManager {
     return { x: carX + (r.x / l) * MAX_AIM, y: carY + (r.z / l) * MAX_AIM };
   }
 
-  read(out: Controls, carX: number, carY: number): void {
+  read(out: Controls, carX: number, carY: number, heading = 0): void {
     const up = this.down('KeyW', 'ArrowUp');
     const dn = this.down('KeyS', 'ArrowDown');
     const left = this.down('KeyA', 'ArrowLeft');
@@ -86,9 +93,24 @@ export class InputManager {
     const a = this.aimWorld(carX, carY);
     out.aimX = a.x;
     out.aimY = a.y;
+    const t = this.touch;
+    if (!t) return;
+    // the car drives itself forward; BRAKE slows down and reverses
+    if (!up && !dn) out.throttle = t.down('brake') ? -1 : 1;
+    if (!left && !right) out.steer = Math.round(t.steer * 50) / 50;
+    out.drift ||= t.down('drift');
+    out.boost ||= t.down('boost');
+    out.ability ||= t.down('ability');
+    out.reset ||= t.down('reset');
+    out.firePrimary ||= t.down('fire');
+    out.fireSecondary ||= t.down('alt');
+    const target = this.findTarget?.(heading);
+    out.aimX = target ? target.x : carX + Math.cos(heading) * 600;
+    out.aimY = target ? target.y : carY + Math.sin(heading) * 600;
   }
 
   destroy(): void {
+    this.touch?.destroy();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('mousemove', this.onMouseMove);

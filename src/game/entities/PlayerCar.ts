@@ -28,6 +28,6 @@ export class PlayerCar extends Car {
       c.aimY = this.y + Math.sin(this.heading) * 100;
       return;
     }
-    this.input.read(this.controls, this.x, this.y);
+    this.input.read(this.controls, this.x, this.y, this.heading);
   }
 }
