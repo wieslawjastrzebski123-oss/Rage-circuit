@@ -7,7 +7,7 @@ import bpy
 import numpy as np
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-PUBLIC = os.path.join(ROOT, 'public', 'assets')
+PUBLIC = os.path.join(ROOT, 'public', 'gfx')
 TMP = os.environ.get('ART_TMP', os.path.join(ROOT, 'art', '.cache'))
 os.makedirs(TMP, exist_ok=True)
 
@@ -220,7 +220,7 @@ def to_srgb(lin):
 
 
 def save(rel, rgb, quality=88, color=False, alpha=None):
-    """Writes a PNG preview to art/.cache and a WebP into public/assets/<rel>.webp."""
+    """Writes a PNG preview to art/.cache and a WebP into public/gfx/<rel>.webp."""
     data = to_srgb(rgb) if color else np.clip(rgb, 0, 1)
     if data.ndim == 2:
         data = np.stack([data] * 3, axis=2)

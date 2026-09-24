@@ -17,9 +17,15 @@ if (IS_TOUCH) {
   });
 }
 
-// Give the web fonts a moment so canvas-drawn labels use them; Blender-made textures load meanwhile.
+// Give the web fonts a moment so canvas-drawn labels use them; Blender-made textures and models load meanwhile.
+const boot = document.createElement('div');
+boot.className = 'boot';
+boot.textContent = 'LOADING';
+document.getElementById('ui')!.appendChild(boot);
 const fontsReady = document.fonts?.ready ?? Promise.resolve();
-Promise.all([Promise.race([fontsReady, new Promise((r) => setTimeout(r, 1500))]), loadAssets()]).then(() => {
+const assets = loadAssets((done) => (boot.textContent = `LOADING ${Math.round(done * 100)}%`));
+Promise.all([Promise.race([fontsReady, new Promise((r) => setTimeout(r, 1500))]), assets]).then(() => {
+  boot.remove();
   const app = new App(document.getElementById('game')!);
   if (DEBUG) (window as unknown as { __app: App }).__app = app;
 });

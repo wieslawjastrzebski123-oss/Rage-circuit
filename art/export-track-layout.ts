@@ -34,7 +34,7 @@ const out = join(here, '.cache');
 mkdirSync(out, { recursive: true });
 
 // the Blender props shade the ground too: load them the way the game does (leaf texture not needed here)
-const glb = readFileSync(join(here, '..', 'public', 'assets', 'models', 'props.glb'));
+const glb = readFileSync(join(here, '..', 'public', 'gfx', 'models', 'props.glb'));
 const gltf = await new GLTFLoader().parseAsync(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength), '');
 useProps(gltf.scene);
 useFoliage(new THREE.Texture());

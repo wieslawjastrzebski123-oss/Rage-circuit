@@ -20,9 +20,18 @@ const SURFACES: SurfaceName[] = ['asphalt', 'concrete', 'yard', 'grass', 'gravel
 const surfaces = new Map<SurfaceName, SurfaceSet>();
 /** prop name → material name → geometry */
 const props = new Map<string, Map<string, THREE.BufferGeometry>>();
+
+/** A Blender-made car body (or the shared wheel / turret): parts by material, plus the measurements stored with it. */
+export interface CarAsset {
+  parts: Map<string, THREE.BufferGeometry>;
+  /** roofY, hoodY, hoodSlope, frontX, rearX, exhaustY, track, wheelR */
+  info: Record<string, number>;
+}
+const cars = new Map<string, CarAsset>();
 let foliage: THREE.Texture | null = null;
 
-const url = (path: string) => `${import.meta.env.BASE_URL}assets/${path}`;
+// not under /assets/: the server caches that folder forever, while these keep fixed names
+const url = (path: string) => `${import.meta.env.BASE_URL}gfx/${path}`;
 
 function loadTexture(loader: THREE.TextureLoader, path: string, color: boolean): Promise<THREE.Texture | null> {
   return new Promise((resolve) => {
@@ -43,18 +52,31 @@ function loadTexture(loader: THREE.TextureLoader, path: string, color: boolean):
   });
 }
 
-export async function loadAssets(): Promise<void> {
+/** Loads everything; onProgress gets the fraction of files done (0..1). */
+export async function loadAssets(onProgress?: (done: number) => void): Promise<void> {
   const loader = new THREE.TextureLoader();
-  const bake = loadTexture(loader, 'tex/track_bake.webp', false).then((t) => {
+  let total = 0;
+  let done = 0;
+  const track = <T>(p: Promise<T>): Promise<T> => {
+    total++;
+    return p.finally(() => onProgress?.(++done / total));
+  };
+  const bake = track(loadTexture(loader, 'tex/track_bake.webp', false)).then((t) => {
     if (!t) return;
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     setBakeTexture(t);
   });
-  const models = new GLTFLoader()
-    .loadAsync(url('models/props.glb'))
+  const models = track(new GLTFLoader().loadAsync(url('models/props.glb')))
     .then((gltf) => useProps(gltf.scene))
     .catch(() => console.warn('asset missing: models/props.glb'));
-  const leaves = loadTexture(loader, 'tex/foliage.webp', true).then((t) => {
+  const carModels = track(new GLTFLoader().loadAsync(url('models/cars.glb')))
+    .then((gltf) => {
+      for (const node of gltf.scene.children) {
+        cars.set(node.name, { parts: partsOf(node), info: node.userData as Record<string, number> });
+      }
+    })
+    .catch(() => console.warn('asset missing: models/cars.glb'));
+  const leaves = track(loadTexture(loader, 'tex/foliage.webp', true)).then((t) => {
     if (!t) return;
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     useFoliage(t);
@@ -62,12 +84,13 @@ export async function loadAssets(): Promise<void> {
   await Promise.all([
     bake,
     models,
+    carModels,
     leaves,
     ...SURFACES.map(async (name) => {
       const [map, normalMap, orm] = await Promise.all([
-        loadTexture(loader, `tex/${name}_color.webp`, true),
-        loadTexture(loader, `tex/${name}_normal.webp`, false),
-        loadTexture(loader, `tex/${name}_orm.webp`, false),
+        track(loadTexture(loader, `tex/${name}_color.webp`, true)),
+        track(loadTexture(loader, `tex/${name}_normal.webp`, false)),
+        track(loadTexture(loader, `tex/${name}_orm.webp`, false)),
       ]);
       if (map && normalMap && orm) surfaces.set(name, { map, normalMap, orm });
     }),
@@ -110,16 +133,23 @@ export function surfaceMaterial(
 
 /** Registers the objects of props.glb (also used by the art export script, which reads the file itself). */
 export function useProps(scene: THREE.Object3D): void {
-  for (const node of scene.children) {
-    const parts = new Map<string, THREE.BufferGeometry>();
-    node.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      mesh.geometry.userData.shared = true;
-      parts.set((mesh.material as THREE.Material).name, mesh.geometry);
-    });
-    props.set(node.name, parts);
-  }
+  for (const node of scene.children) props.set(node.name, partsOf(node));
+}
+
+/** Geometries of an exported object keyed by material name (glTF splits multi-material meshes into one primitive each). */
+function partsOf(node: THREE.Object3D): Map<string, THREE.BufferGeometry> {
+  const parts = new Map<string, THREE.BufferGeometry>();
+  node.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.userData.shared = true;
+    parts.set((mesh.material as THREE.Material).name, mesh.geometry);
+  });
+  return parts;
+}
+
+export function carAsset(name: string): CarAsset | null {
+  return cars.get(name) ?? null;
 }
 
 export function useFoliage(t: THREE.Texture): void {

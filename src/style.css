@@ -58,6 +58,20 @@ body.in-race #ui {
   display: none !important;
 }
 
+/* shown while textures and models download */
+.boot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.3em;
+  color: var(--muted);
+}
+
 /* ------------------------------------------------------------------ crosshair */
 #crosshair {
   position: fixed;

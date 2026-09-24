@@ -432,7 +432,7 @@ export class Car {
     m.root.rotation.y = -(this.heading + this.bodyYaw);
     m.body.rotation.set(this.roll, 0, this.pitch);
     m.body.position.y = this.bounce;
-    for (const w of m.wheels) w.rotation.z -= (vF * dt) / 6;
+    for (const w of m.wheels) w.rotation.z -= (vF * dt) / m.wheelRadius;
     for (const w of m.frontWheels) w.rotation.y = -this.controls.steer * 0.35;
     m.turret.rotation.y = -(this.aimAngle - this.heading - this.bodyYaw);
     m.turret.visible = alive;

@@ -2,12 +2,13 @@ import * as THREE from 'three';
 import type { CarStats } from '../data/cars';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { numberTexture, textures } from './Textures';
+import { carAsset } from './Assets';
 
 const RACE_NUMBERS: Record<string, number> = { viper: 7, rhino: 21, spectre: 13, volt: 42 };
 
 /**
- * Procedural low-poly car. Local axes: +X forward, +Y up, +Z right.
- * Outlines match the original top-down silhouettes (52 × 28 units).
+ * A car: the Blender model (art/blender/cars.py) when it loaded, otherwise the procedural low-poly one.
+ * Local axes: +X forward, +Y up, +Z right. Outlines match the original top-down silhouettes (52 × 28 units).
  */
 export interface CarModel {
   root: THREE.Group;
@@ -28,6 +29,7 @@ export interface CarModel {
   shadow: THREE.Mesh;
   /** every material that should fade for ghost mode */
   fadeMats: THREE.Material[];
+  wheelRadius: number;
 }
 
 const S = 0.5; // texture px → world units
@@ -99,22 +101,167 @@ wheelMat.userData.shared = true;
 const hubMat = new THREE.MeshStandardMaterial({ color: 0xc4c8ce, roughness: 0.25, metalness: 0.95 });
 hubMat.userData.shared = true;
 
-export function buildCarModel(car: CarStats): CarModel {
-  const root = new THREE.Group();
-  const body = new THREE.Group();
-  root.add(body);
-
+/** Materials shared by both car builds; vertex colours carry the Blender-baked occlusion when present. */
+function carMaterials(car: CarStats, vertexColors: boolean) {
   // metallic car paint – reflections come from the scene environment map
   const paint = new THREE.Color(car.color).multiplyScalar(0.8);
   // clear-coated paint: a glossy lacquer layer over a slightly metallic base
-  const bodyMat = new THREE.MeshPhysicalMaterial({ color: paint, metalness: 0.35, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.06 });
+  const bodyMat = new THREE.MeshPhysicalMaterial({ color: paint, metalness: 0.35, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.06, vertexColors });
   bodyMat.userData.baseEmissive = 0x000000;
-  const darkMat = new THREE.MeshStandardMaterial({ color: 0x202226, roughness: 0.7, metalness: 0.2 });
-  const accentMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(car.accent).multiplyScalar(0.85), roughness: 0.4, metalness: 0.3 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x202226, roughness: 0.7, metalness: 0.2, vertexColors });
+  const accentMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(car.accent).multiplyScalar(0.85), roughness: 0.4, metalness: 0.3, vertexColors });
   const glassMat = new THREE.MeshStandardMaterial({ color: 0x0e141b, roughness: 0.06, metalness: 0.9 });
   // lamps are pushed past 1.0 so they catch the bloom on high quality
   const headMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xfff4c8).multiplyScalar(12) });
   const tailMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xc01020).multiplyScalar(14) });
+  const barrelMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.35, metalness: 0.85, vertexColors });
+  return { bodyMat, darkMat, accentMat, glassMat, headMat, tailMat, barrelMat };
+}
+
+export function buildCarModel(car: CarStats): CarModel {
+  return buildBlenderCar(car) ?? buildProceduralCar(car);
+}
+
+/** The Blender-modelled car: body parts by material, a shared wheel and turret, measurements from the model. */
+function buildBlenderCar(car: CarStats): CarModel | null {
+  const asset = carAsset(car.id);
+  const wheelAsset = carAsset('wheel');
+  const turretAsset = carAsset('turret');
+  if (!asset || !wheelAsset || !turretAsset) return null;
+  const info = asset.info;
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const mats = carMaterials(car, true);
+  const { bodyMat, darkMat, accentMat, glassMat, headMat, tailMat, barrelMat } = mats;
+  // Volt's roof coils glow in the car's colour
+  const coilMat = new THREE.MeshStandardMaterial({ color: car.color, emissive: car.color, emissiveIntensity: 1.4, roughness: 0.3, vertexColors: true });
+  const turretMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.5, metalness: 0.6, vertexColors: true });
+  const byName: Record<string, THREE.Material> = {
+    paint: bodyMat,
+    dark: darkMat,
+    accent: accentMat,
+    glass: glassMat,
+    head: headMat,
+    tail: tailMat,
+    chrome: hubMat,
+    coil: coilMat,
+    tire_dark: wheelMat,
+    tire: wheelMat,
+    rim: hubMat,
+    turret: turretMat,
+    barrel: barrelMat,
+  };
+  for (const [name, geo] of asset.parts) {
+    const mesh = new THREE.Mesh(geo, byName[name] ?? darkMat);
+    mesh.castShadow = true;
+    body.add(mesh);
+  }
+
+  // ---------- wheels (the axle runs along z)
+  const wheelR = info.wheelR ?? 5.5;
+  const track = info.track ?? 12;
+  const wheels: THREE.Mesh[] = [];
+  const frontWheels: THREE.Mesh[] = [];
+  const tyreGeo = wheelAsset.parts.get('tire');
+  const rimGeo = wheelAsset.parts.get('rim');
+  for (const [x, isFront] of [
+    [14, true],
+    [-14, false],
+  ] as [number, boolean][]) {
+    for (const z of [-track, track]) {
+      const w = new THREE.Mesh(tyreGeo, wheelMat);
+      w.position.set(x, wheelR, z);
+      if (rimGeo) w.add(new THREE.Mesh(rimGeo, hubMat));
+      w.castShadow = true;
+      root.add(w);
+      wheels.push(w);
+      if (isFront) frontWheels.push(w);
+    }
+  }
+
+  // ---------- race number on the bonnet, tilted to its slope
+  const num = new THREE.Mesh(
+    new THREE.PlaneGeometry(8, 8),
+    new THREE.MeshStandardMaterial({
+      map: numberTexture(RACE_NUMBERS[car.id] ?? 1, '#' + car.color.toString(16).padStart(6, '0')),
+      transparent: true,
+      roughness: 0.4,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+    }),
+  );
+  // lie flat, turn to read along the car, then tilt with the bonnet
+  num.rotation.order = 'ZYX';
+  num.rotation.set(-Math.PI / 2, -Math.PI / 2, Math.atan(info.hoodSlope ?? 0));
+  num.position.set(15, (info.hoodY ?? 10) + 0.25, 0);
+  body.add(num);
+
+  // ---------- turret on the roof
+  const turret = new THREE.Group();
+  for (const [name, geo] of turretAsset.parts) {
+    const mesh = new THREE.Mesh(geo, byName[name] ?? turretMat);
+    mesh.castShadow = true;
+    turret.add(mesh);
+  }
+  turret.position.set(-3, (info.roofY ?? 15) - 0.4, 0);
+  body.add(turret);
+
+  const fx = buildFx(car, body, root, info.rearX ?? -25, info.exhaustY ?? 5);
+  const fadeMats: THREE.Material[] = [bodyMat, darkMat, accentMat, glassMat, headMat, tailMat, barrelMat, coilMat, turretMat];
+  return { root, body, turret, wheels, frontWheels, bodyMat, tailMat, headMat, glassMat, ...fx, fadeMats, wheelRadius: wheelR };
+}
+
+/** Boost flame, shield bubble, drift underglow and the soft blob shadow. */
+function buildFx(car: CarStats, body: THREE.Group, root: THREE.Group, rearX: number, flameY: number) {
+  const flameMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x5fb8ff).multiplyScalar(10), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+  const flameGeo = new THREE.ConeGeometry(4, 22, 10, 1, true);
+  flameGeo.rotateZ(Math.PI / 2); // tip now points backwards (-X)
+  flameGeo.translate(-11, 0, 0);
+  const flame = new THREE.Mesh(flameGeo, flameMat);
+  flame.position.set(rearX, flameY, 0);
+  flame.visible = false;
+  body.add(flame);
+
+  const shield = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(36, 2),
+    new THREE.MeshBasicMaterial({ color: 0x7dff4a, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, wireframe: true }),
+  );
+  shield.position.y = 10;
+  shield.visible = false;
+  root.add(shield);
+
+  const underglowMat = new THREE.MeshBasicMaterial({
+    map: textures().soft,
+    color: car.color,
+    transparent: true,
+    opacity: 0.55,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  // only shown while drifting – doubles as the drift-charge indicator
+  const underglow = new THREE.Mesh(new THREE.PlaneGeometry(90, 60), underglowMat);
+  underglow.rotation.x = -Math.PI / 2;
+  underglow.position.y = 0.9;
+  underglow.visible = false;
+  root.add(underglow);
+
+  const shadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(70, 44),
+    new THREE.MeshBasicMaterial({ map: textures().soft, color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }),
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.7;
+  root.add(shadow);
+  return { flame, flameMat, shield, underglow, underglowMat, shadow };
+}
+
+/** The original low-poly car built from extruded outlines (used when the Blender models are missing). */
+function buildProceduralCar(car: CarStats): CarModel {
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const { bodyMat, darkMat, accentMat, glassMat, headMat, tailMat, barrelMat } = carMaterials(car, false);
 
   // ---------- chassis
   const lift = 3.5;
@@ -289,7 +436,6 @@ export function buildCarModel(car: CarStats): CarModel {
   const turret = new THREE.Group();
   const tBase = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 5.5, 3, 10), new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.5, metalness: 0.6 }));
   turret.add(tBase);
-  const barrelMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.35, metalness: 0.85 });
   const barrel = new THREE.Mesh(new THREE.BoxGeometry(14, 2.2, 2.2), barrelMat);
   barrel.position.set(8, 0.8, 0);
   turret.add(barrel);
@@ -299,46 +445,7 @@ export function buildCarModel(car: CarStats): CarModel {
   turret.position.set(-3, top + cabinH * 0.6 + 1, 0);
   body.add(turret);
 
-  // ---------- fx meshes
-  const flameMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0x5fb8ff).multiplyScalar(10), transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
-  const flameGeo = new THREE.ConeGeometry(4, 22, 10, 1, true);
-  flameGeo.rotateZ(Math.PI / 2); // tip now points backwards (-X)
-  flameGeo.translate(-11, 0, 0);
-  const flame = new THREE.Mesh(flameGeo, flameMat);
-  flame.position.set(-25, lift + h * 0.5, 0);
-  flame.visible = false;
-  body.add(flame);
-
-  const shield = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(36, 2),
-    new THREE.MeshBasicMaterial({ color: 0x7dff4a, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, wireframe: true }),
-  );
-  shield.position.y = 10;
-  shield.visible = false;
-  root.add(shield);
-
-  const underglowMat = new THREE.MeshBasicMaterial({
-    map: textures().soft,
-    color: car.color,
-    transparent: true,
-    opacity: 0.55,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  // only shown while drifting – doubles as the drift-charge indicator
-  const underglow = new THREE.Mesh(new THREE.PlaneGeometry(90, 60), underglowMat);
-  underglow.rotation.x = -Math.PI / 2;
-  underglow.position.y = 0.9;
-  underglow.visible = false;
-  root.add(underglow);
-
-  const shadow = new THREE.Mesh(
-    new THREE.PlaneGeometry(70, 44),
-    new THREE.MeshBasicMaterial({ map: textures().soft, color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }),
-  );
-  shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.7;
-  root.add(shadow);
+  const { flame, flameMat, shield, underglow, underglowMat, shadow } = buildFx(car, body, root, -25, lift + h * 0.5);
 
   // real shadows from the sun
   body.traverse((o) => ((o as THREE.Mesh).castShadow = true));
@@ -347,5 +454,5 @@ export function buildCarModel(car: CarStats): CarModel {
 
   const fadeMats: THREE.Material[] = [bodyMat, darkMat, accentMat, glassMat, headMat, tailMat, barrelMat];
 
-  return { root, body, turret, wheels, frontWheels, bodyMat, tailMat, headMat, glassMat, flame, flameMat, shield, underglow, underglowMat, shadow, fadeMats };
+  return { root, body, turret, wheels, frontWheels, bodyMat, tailMat, headMat, glassMat, flame, flameMat, shield, underglow, underglowMat, shadow, fadeMats, wheelRadius: 6 };
 }
