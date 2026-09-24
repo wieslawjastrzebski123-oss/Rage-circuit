@@ -5,6 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
 import { Storage } from '../utils/storage';
 import { setLiveShadow } from './groundBake';
 
@@ -90,6 +91,11 @@ export class Gfx {
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
   private post = false;
+  /** pixel ratio chosen by the settings, and how far the frame-rate guard has lowered it */
+  private basePixelRatio = 1;
+  private pixelRatioDrop = 0;
+  private frameTimes: number[] = [];
+  private lastFrame = 0;
   private raycaster = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -10);
@@ -166,8 +172,9 @@ export class Gfx {
     this.sun.shadow.normalBias = 1.2;
     this.scene.add(this.sun, this.sun.target);
 
-    // HDR multisampled target so bright lights can exceed 1.0 and bloom
-    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    // HDR target so bright lights can exceed 1.0 and bloom. No multisampling: 4× MSAA on a half-float
+    // target cost about half the frame at Retina resolution; FXAA at the end smooths edges far cheaper.
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
     this.composer = new EffectComposer(this.renderer, target);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     // high threshold: only lights, flames, explosions and the sun glow — not sunlit concrete
@@ -175,6 +182,7 @@ export class Gfx {
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.composer.addPass(new ShaderPass(GradeShader));
+    this.composer.addPass(new FXAAPass());
 
     this.applySettings();
 
@@ -187,7 +195,9 @@ export class Gfx {
     this.post = high;
     // beyond the live shadow map (and everywhere on low quality) the ground uses shadows baked in Blender
     setLiveShadow(high, this.sun.target.position.x, this.sun.target.position.z);
-    this.renderer.setPixelRatio(high ? Math.min(window.devicePixelRatio, 1.5) : 1);
+    this.basePixelRatio = high ? Math.min(window.devicePixelRatio, 1.5) : 1;
+    this.pixelRatioDrop = 0;
+    this.renderer.setPixelRatio(this.basePixelRatio);
     if (this.renderer.shadowMap.enabled !== high) {
       this.renderer.shadowMap.enabled = high;
       this.sun.castShadow = high;
@@ -208,6 +218,9 @@ export class Gfx {
     this.camera.updateProjectionMatrix();
     this.composer.setPixelRatio(this.renderer.getPixelRatio());
     this.composer.setSize(w, h);
+    // the glow is soft anyway: blur it from a quarter-size image instead of half
+    const pr = this.renderer.getPixelRatio();
+    this.bloom.setSize((w * pr) / 2, (h * pr) / 2);
   }
 
   /** Keep the shadow-casting sun centred on the action. */
@@ -234,11 +247,37 @@ export class Gfx {
   }
 
   render(): void {
+    this.guardFrameRate();
     this.sky.position.copy(this.camera.position);
     this.sky.material.uniforms.time.value = performance.now() / 1000;
     if (this.post) this.composer.render();
     // low quality: rendered directly, the canvas' own anti-aliasing applies
     else this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * If the game can't hold ~50 fps for a couple of seconds, render fewer pixels (steps of 0.25 down to 1×).
+   * It only ever steps down, so it can't oscillate; changing the quality setting starts over.
+   */
+  private guardFrameRate(): void {
+    const now = performance.now();
+    const dt = now - this.lastFrame;
+    this.lastFrame = now;
+    // ignore pauses: hidden tab, loading, a debugger
+    if (document.visibilityState !== 'visible' || dt > 100) {
+      this.frameTimes.length = 0;
+      return;
+    }
+    this.frameTimes.push(dt);
+    if (this.frameTimes.length < 120) return;
+    const median = [...this.frameTimes].sort((a, b) => a - b)[60];
+    this.frameTimes.length = 0;
+    const ratio = this.basePixelRatio - this.pixelRatioDrop;
+    if (median > 20 && ratio > 1) {
+      this.pixelRatioDrop += 0.25;
+      this.renderer.setPixelRatio(Math.max(1, ratio - 0.25));
+      this.resize();
+    }
   }
 
   /** Mouse (client px) → point on the horizontal plane at turret height. Null if above the horizon. */
