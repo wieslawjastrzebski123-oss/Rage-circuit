@@ -1,6 +1,6 @@
 """
-Bakes the track's ground lighting (see src/game/render/groundBake.ts for the channel layout).
-Input comes from art/export-track-layout.ts; run both with `npm run art:ground`.
+Bakes a track's ground lighting (see src/game/render/groundBake.ts for the channel layout).
+Input comes from art/export-track-layout.ts; run both with `npm run art:ground -- <track>`.
 """
 import json
 import math
@@ -15,8 +15,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 from common import TMP, blur, reset_scene, save, smooth  # noqa: E402
 
 AO_DISTANCE = 110  # world units (~10 m)
-SUN_ELEVATION = math.radians(38)  # must match Gfx.ts
-SUN_AZIMUTH = math.radians(-35)
 
 
 def use_gpu(sc):
@@ -39,10 +37,14 @@ def use_gpu(sc):
 def main():
     sc = reset_scene()
     use_gpu(sc)
-    area = json.load(open(os.path.join(TMP, 'track_layout.json')))
+    track = sys.argv[sys.argv.index('--') + 1] if '--' in sys.argv else 'industrial'
+    area = json.load(open(os.path.join(TMP, f'{track}_layout.json')))
     x0, z0, W, H, px, py = (area[k] for k in ('x0', 'z0', 'width', 'height', 'px', 'py'))
+    # the game's sun (src/game/render/environments.ts)
+    sun_el = math.radians(area['sunElevation'])
+    sun_az = math.radians(area['sunAzimuth'])
 
-    bpy.ops.wm.obj_import(filepath=os.path.join(TMP, 'track_layout.obj'), forward_axis='NEGATIVE_Z', up_axis='Y')
+    bpy.ops.wm.obj_import(filepath=os.path.join(TMP, f'{track}_layout.obj'), forward_axis='NEGATIVE_Z', up_axis='Y')
 
     # receiver: the ground seen from above, UVs matching the game's lookup
     corners = [(x0, z0), (x0 + W, z0), (x0 + W, z0 + H), (x0, z0 + H)]
@@ -75,8 +77,8 @@ def main():
     world.light_settings.distance = AO_DISTANCE
 
     # sun matching the game: three's (x, y, z) direction becomes Blender's (x, -z, y)
-    phi = math.pi / 2 - SUN_ELEVATION
-    d3 = (math.sin(phi) * math.sin(SUN_AZIMUTH), math.cos(phi), math.sin(phi) * math.cos(SUN_AZIMUTH))
+    phi = math.pi / 2 - sun_el
+    d3 = (math.sin(phi) * math.sin(sun_az), math.cos(phi), math.sin(phi) * math.cos(sun_az))
     sun_dir = Vector((d3[0], -d3[2], d3[1])).normalized()
     sun = bpy.data.objects.new('sun', bpy.data.lights.new('sun', 'SUN'))
     sun.data.energy = 1.0
@@ -114,7 +116,7 @@ def main():
     n3 = blur(rng.standard_normal((py, px)), 4)
     norm = lambda a: a / (a.std() + 1e-9)
     macro = 0.5 + 0.055 * norm(n1) + 0.03 * norm(n2)
-    dist = np.fromfile(os.path.join(TMP, 'track_rubber.f32'), dtype=np.float32).reshape(py, px)
+    dist = np.fromfile(os.path.join(TMP, f'{track}_rubber.f32'), dtype=np.float32).reshape(py, px)
     breakup = smooth(-1.2, 1.0, norm(n2) + 0.6 * norm(n3))
     rubber = np.exp(-((dist / 17.0) ** 2)) * (0.45 + 0.55 * breakup)
     macro = macro - 0.16 * rubber
@@ -129,7 +131,7 @@ def main():
 
     out = np.stack([ao, shadow, np.clip(macro, 0, 1)], axis=2)
     print('ao mean %.3f shadow mean %.3f' % (ao.mean(), shadow.mean()))
-    save('tex/track_bake', out, quality=90)
+    save(f'tex/bake_{track}', out, quality=90)
 
 
 main()

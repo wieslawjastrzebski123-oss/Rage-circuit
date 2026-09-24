@@ -10,9 +10,10 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
     "server": "tsx server/index.ts",
     "art:textures": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b --factory-startup -P art/blender/textures.py --",
-    "art:ground": "tsx art/export-track-layout.ts && \"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b --factory-startup -P art/blender/ground_bake.py",
+    "art:ground": "sh art/bake-ground.sh",
     "art:props": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b --factory-startup -P art/blender/props.py",
-    "art:cars": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b --factory-startup -P art/blender/cars.py --"
+    "art:cars": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b --factory-startup -P art/blender/cars.py --",
+    "art:desert": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b --factory-startup -P art/blender/desert.py"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

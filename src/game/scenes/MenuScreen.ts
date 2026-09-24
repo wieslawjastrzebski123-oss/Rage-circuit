@@ -84,6 +84,7 @@ export class MenuScreen {
       ['ALT', 'Secondary weapon (Rocket / Mine)'],
       ['SKILL', 'Car ability (Overcharge / Shield / Blink / EMP)'],
       ['REAR', 'Hold to look back – the turret targets the rival behind you and fires automatically'],
+      ['RAMPS', 'Hit them fast: hang time fills Boost, you sail over mines and barrels, and landing on a rival crushes it'],
       ['↺', 'Reset to last checkpoint (2 s penalty)'],
       ['II', 'Pause'],
     ] : [
@@ -96,6 +97,7 @@ export class MenuScreen {
       ['RMB / Q', 'Secondary weapon (Rocket / Mine)'],
       ['C (hold)', 'Rear view – look back, aim with the mouse and shoot the cars behind you'],
       ['SHIFT', 'Car ability (Overcharge / Shield / Blink / EMP)'],
+      ['RAMPS', 'Hit them fast: hang time fills Boost, you sail over mines and barrels, and landing on a rival crushes it'],
       ['R', 'Reset to last checkpoint (2 s penalty)'],
       ['ESC', 'Pause'],
     ];

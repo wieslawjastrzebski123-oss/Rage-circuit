@@ -1,10 +1,10 @@
 /**
- * Builds the track scenery exactly as the game does and writes it out for the Blender lighting bake:
- *   art/.cache/track_layout.obj   – every solid object that can shade the ground
- *   art/.cache/track_layout.json  – bake area and image size
- *   art/.cache/track_rubber.f32   – distance to the AI racing line per pixel (for rubbered-in tarmac)
+ * Builds a track's scenery exactly as the game does and writes it out for the Blender lighting bake:
+ *   art/.cache/<track>_layout.obj   – every solid object that can shade the ground
+ *   art/.cache/<track>_layout.json  – bake area, image size and sun direction
+ *   art/.cache/<track>_rubber.f32   – distance to the AI racing line per pixel (for rubbered-in tarmac)
  *
- * Run with: npm run art:ground (this script is its first step)
+ * Run with: npm run art:ground -- <track>   (this script is its first step)
  */
 import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -21,31 +21,38 @@ const ctx = new Proxy({} as Record<string | symbol, unknown>, {
 };
 
 const THREE = await import('three');
-const { Track } = await import('../src/game/track/Track');
-const { INDUSTRIAL_DISTRICT } = await import('../src/game/track/TrackData');
+const { getTrack, isTrackId } = await import('../src/game/track/tracks');
 const { TrackView } = await import('../src/game/track/TrackView');
-const { BAKE_AREA } = await import('../src/game/render/groundBake');
+const { BAKE_AREAS } = await import('../src/game/render/groundBake');
+const { ENVIRONMENTS } = await import('../src/game/render/environments');
 
 const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
-const { useProps, useFoliage } = await import('../src/game/render/Assets');
+const { useProps, useDesertModels, useFoliage } = await import('../src/game/render/Assets');
+
+const id = process.argv[2] ?? 'industrial';
+if (!isTrackId(id)) throw new Error(`unknown track "${id}"`);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = join(here, '.cache');
 mkdirSync(out, { recursive: true });
 
-// the Blender props shade the ground too: load them the way the game does (leaf texture not needed here)
-const glb = readFileSync(join(here, '..', 'public', 'gfx', 'models', 'props.glb'));
-const gltf = await new GLTFLoader().parseAsync(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength), '');
-useProps(gltf.scene);
+// the Blender models shade the ground too: load them the way the game does (textures not needed here)
+const loadGlb = async (file: string) => {
+  const glb = readFileSync(join(here, '..', 'public', 'gfx', 'models', file));
+  return (await new GLTFLoader().parseAsync(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength), '')).scene;
+};
+useProps(await loadGlb('props.glb'));
+useDesertModels(await loadGlb('desert.glb'));
 useFoliage(new THREE.Texture());
 
-const track = new Track(INDUSTRIAL_DISTRICT);
+const track = getTrack(id);
 const root = new THREE.Group();
 new TrackView(track, root);
 root.updateMatrixWorld(true);
 
-const { x0, z0, width, height, px, py } = BAKE_AREA;
-const obj = createWriteStream(join(out, 'track_layout.obj'));
+const area = BAKE_AREAS[id];
+const { x0, z0, width, height, px, py } = area;
+const obj = createWriteStream(join(out, `${id}_layout.obj`));
 let vBase = 1;
 let tris = 0;
 const v = new THREE.Vector3();
@@ -122,6 +129,7 @@ for (let i = 0; i < pts.length; i++) {
     }
   }
 }
-writeFileSync(join(out, 'track_rubber.f32'), Buffer.from(rubber.buffer));
-writeFileSync(join(out, 'track_layout.json'), JSON.stringify(BAKE_AREA));
+writeFileSync(join(out, `${id}_rubber.f32`), Buffer.from(rubber.buffer));
+const env = ENVIRONMENTS[track.def.theme];
+writeFileSync(join(out, `${id}_layout.json`), JSON.stringify({ ...area, sunElevation: env.sunElevation, sunAzimuth: env.sunAzimuth }));
 console.log(`exported ${tris} triangles, bake area ${width}×${height} → ${px}×${py} px`);

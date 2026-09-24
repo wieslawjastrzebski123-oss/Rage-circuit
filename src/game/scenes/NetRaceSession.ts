@@ -34,6 +34,7 @@ import { InputManager } from '../systems/InputManager';
 import { PickupSystem } from '../systems/PickupSystem';
 import type { World } from '../systems/World';
 import { TrackView } from '../track/TrackView';
+import { ENVIRONMENTS } from '../render/environments';
 import { HUD, type RaceInfo } from '../ui/HUD';
 import { button, h, layer, setCrosshair } from '../ui/dom';
 import { angleDiff, lerp } from '../utils/math';
@@ -138,8 +139,10 @@ export class NetRaceSession implements RaceInfo {
       view: (car) => (car === world.player ? { hud: world.hud, effects: world.effects, audio: world.audio } : null),
     };
     this.world = world;
+    gfx.setEnvironment(track.def.theme);
     this.view = new TrackView(track, gfx.root);
     world.effects = new Effects(gfx);
+    world.effects.dust = ENVIRONMENTS[track.def.theme].dust;
     world.combat = new CombatSystem(world);
     world.collisions = new CollisionSystem(world, track.def.obstacles);
     this.pickups = new PickupSystem(world, track.def.pickups);
@@ -402,6 +405,7 @@ export class NetRaceSession implements RaceInfo {
       for (const c of this.view.chimneys) this.world.effects.chimneySmoke(c.x, c.y, c.h);
     }
     this.world.effects.update(dt);
+    this.view.update(this.world.time);
     this.pickups.showState(this.snaps.at(-1)?.s.pk ?? [], this.world.time);
 
     const latest = this.snaps.at(-1);

@@ -220,7 +220,82 @@ def corrugated(S=512):
     write('corrugated', col, h, rough, strength=2.0, metal=metal, ao_sigma=4.0, ao_k=1.0)
 
 
-RECIPES = {'asphalt': asphalt, 'concrete': concrete, 'yard': yard, 'grass': grass, 'gravel': gravel, 'corrugated': corrugated}
+def sand(S=1024):
+    # 400-unit tile of wind-rippled desert sand with scattered pebbles
+    warp, grain, mottle = bake_layers(S, lambda N: (
+        N.noise(3, 3, 61, detail=3),
+        N.noise(900, 900, 62, detail=2),
+        N.noise(4, 4, 63, detail=5, rough=0.6),
+    )).transpose(2, 0, 1)
+    peb, peb_r, drift = bake_layers(S, lambda N: (
+        N.voronoi(160, 160, 64, feature='F1'),
+        N.voronoi(160, 160, 64, out='Random'),
+        N.noise(2, 2, 65, detail=4, distortion=0.4),
+    )).transpose(2, 0, 1)
+    yy, xx = np.mgrid[0:S, 0:S] / S
+    # ripples run across the wind; the phase wanders so crests curve and fork (an integer number
+    # of waves per tile keeps it seamless, and the warp noise is seamless itself)
+    phase = (xx * 0.35 + yy) * 2 * np.pi * 38 + (warp - 0.5) * 9.0
+    ripple = 0.5 + 0.5 * np.sin(phase + 0.35 * np.sin(phase))
+    ripple *= smooth(0.25, 0.6, drift) * 0.7 + 0.3  # smoother patches where the wind scoured it flat
+    col = mix(srgb(0xc99a68), srgb(0xe2bd8e), smooth(0.3, 0.75, mottle))
+    col = col * (0.88 + 0.16 * ripple[:, :, None]) * (0.94 + 0.1 * grain[:, :, None])
+    pebble = smooth(0.1, 0.04, peb) * smooth(0.82, 0.9, peb_r)
+    col = mix(col, mix(srgb(0x6e4a34), srgb(0x9a7a5a), peb_r), pebble)
+    h = ripple * 0.7 + grain * 0.15 + pebble * 0.8
+    rough = 0.93 - 0.1 * pebble
+    write('sand', col, h, rough, strength=3.0, ao_sigma=3.0, ao_k=2.0)
+
+
+def sandstone(S=1024):
+    # cliff rock, V running up the face: continuous horizontal strata of random thickness (harder
+    # layers stand out as ledges), vertical joints, and dark desert-varnish streaks running down
+    warp, runnels, stain = bake_layers(S, lambda N: (
+        N.noise(4, 4, 71, detail=4),
+        N.noise(90, 3, 73, detail=4, rough=0.6),
+        N.noise(5, 5, 76, detail=5),
+    )).transpose(2, 0, 1)
+    joints, pits, grain = bake_layers(S, lambda N: (
+        N.voronoi(9, 1.6, 74, feature='DISTANCE_TO_EDGE'),
+        N.voronoi(70, 70, 75, feature='F1'),
+        N.noise(700, 700, 77, detail=2),
+    )).transpose(2, 0, 1)
+    rng = np.random.default_rng(11)
+    palette = [0x9a4630, 0xae5836, 0xbf6a3e, 0xc98352, 0xa14c32, 0xcf9463, 0x94432e, 0xb86242]
+    rows, y = [], 0
+    while y < S:
+        t = int(rng.integers(8, 46))
+        rows.append((y, min(S, y + t), srgb(palette[rng.integers(len(palette))]), rng.uniform(0, 1)))
+        y += t
+    layer_col = np.zeros((S, 3))
+    layer_hard = np.zeros(S)
+    layer_edge = np.zeros(S)
+    for y0, y1, c, hard in rows:
+        layer_col[y0:y1] = c
+        layer_hard[y0:y1] = hard
+        yy = np.arange(y0, y1)
+        layer_edge[y0:y1] = np.minimum(yy - y0, y1 - 1 - yy)
+    # strata wander a little up and down across the face (wrap keeps it seamless)
+    yy, xx = np.mgrid[0:S, 0:S]
+    iy = (yy + ((warp - 0.5) * 70).astype(int)) % S
+    col = blur(layer_col[iy], 1.6)
+    hard = layer_hard[iy]
+    edge = layer_edge[iy]
+    col = col * (0.92 + 0.14 * grain[:, :, None]) * (0.82 + 0.34 * stain[:, :, None])
+    run = smooth(0.5, 0.75, runnels)
+    col = col * (1 - 0.32 * run[:, :, None])
+    joint = smooth(0.012, 0.003, joints)
+    col = mix(col, col * 0.72, joint)
+    # soft layers erode back: darker, shadowed seams between the beds
+    seam = smooth(3.0, 0.0, edge) * (1 - hard)
+    col = mix(col, col * 0.6, seam * 0.8)
+    pit = smooth(0.12, 0.05, pits)
+    h = hard * 0.6 + grain * 0.1 - seam * 0.5 - joint * 0.8 - pit * 0.2 + (1 - run) * 0.15
+    rough = 0.9 + 0.05 * run
+    write('sandstone', col, h, rough, strength=5.0, ao_sigma=3.0, ao_k=4.0)
+
+
+RECIPES = {'sand': sand, 'sandstone': sandstone, 'asphalt': asphalt, 'concrete': concrete, 'yard': yard, 'grass': grass, 'gravel': gravel, 'corrugated': corrugated}
 
 if __name__ == '__main__':
     reset_scene()

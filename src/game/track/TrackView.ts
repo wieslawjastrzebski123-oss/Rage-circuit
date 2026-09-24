@@ -4,6 +4,7 @@ import { textures } from '../render/Textures';
 import { foliageMaterial, prop, surfaceMaterial } from '../render/Assets';
 import { applyBake, useBake } from '../render/groundBake';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { DesertScenery } from './DesertScenery';
 
 const WALL_H = 22;
 const WALL_T = 12;
@@ -26,6 +27,8 @@ export class TrackView {
   /** factory chimney tops – the race session puffs smoke out of them */
   readonly chimneys: { x: number; y: number; h: number }[] = [];
   private track: Track;
+  private readonly desert: boolean;
+  private desertScenery: DesertScenery | null = null;
   /** footprints already used by scenery (keeps props from overlapping) */
   private taken: { x: number; y: number; w: number; h: number }[] = [];
   private seed = 20240917;
@@ -36,6 +39,7 @@ export class TrackView {
 
   constructor(track: Track, root: THREE.Object3D) {
     this.track = track;
+    this.desert = track.def.theme === 'desert';
     root.add(this.group);
     useBake(track.def.id);
     this.buildGround();
@@ -46,16 +50,25 @@ export class TrackView {
     this.buildVerges();
     this.buildGrandstand();
     this.buildBillboards();
-    this.buildScenery();
-    this.buildIndustry();
-    this.buildTrees();
-    this.buildHills();
-    this.buildLamps();
-    this.buildGroundPatches();
-    this.buildBushes();
-    this.buildPylons();
+    this.buildObstacles();
+    if (this.desert) this.desertScenery = new DesertScenery(track, this.group);
+    else {
+      this.buildScenery();
+      this.buildIndustry();
+      this.buildTrees();
+      this.buildHills();
+      this.buildLamps();
+      this.buildGroundPatches();
+      this.buildBushes();
+      this.buildPylons();
+    }
     this.buildRamps();
     this.applyBakedLighting();
+  }
+
+  /** Animated scenery (the desert's pumpjacks). */
+  update(time: number): void {
+    this.desertScenery?.update(time);
   }
 
   /** Blender-baked occlusion and shadows: full effect on the ground, a soft contact darkening on everything standing on it. */
@@ -75,8 +88,9 @@ export class TrackView {
         box.copy(mesh.geometry.boundingBox!).applyMatrix4(mesh.matrixWorld);
       }
       const flat = box.max.y < 3;
+      const mode = (mesh.userData.bakeMode as 'ground' | 'upright' | undefined) ?? (flat ? 'ground' : 'upright');
       const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const m of mats) applyBake(m, flat ? 'ground' : 'upright');
+      for (const m of mats) applyBake(m, mode);
     });
   }
 
@@ -189,9 +203,13 @@ export class TrackView {
     tex.repeat.set(...repeat);
     const g = new THREE.PlaneGeometry(t.width + m * 2, t.height + m * 2);
     g.rotateX(-Math.PI / 2);
-    const mat = surfaceMaterial('yard', {}, repeat) ?? new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0 });
+    // desert: sand out to the horizon, below the dune field (which sits at -1 near the road)
+    const mat =
+      surfaceMaterial(this.desert ? 'sand' : 'yard', {}, this.desert ? [repeat[0] * 1.5, repeat[1] * 1.5] : repeat) ??
+      new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0 });
     const ground = new THREE.Mesh(g, mat);
-    ground.position.set(t.width / 2, -0.5, t.height / 2);
+    ground.position.set(t.width / 2, this.desert ? -3 : -0.5, t.height / 2);
+    if (this.desert) ground.scale.setScalar(2.5);
     ground.receiveShadow = true;
     this.group.add(ground);
   }
@@ -199,6 +217,8 @@ export class TrackView {
   private buildRoad(): void {
     const t = this.track;
     const asphalt = surfaceMaterial('asphalt') ?? new THREE.MeshStandardMaterial({ map: textures().asphalt, roughness: 0.92, metalness: 0 });
+    // desert tarmac is sun-bleached and dusty (brighter than the texture, so the low sun still shows it)
+    if (this.desert) asphalt.color.setRGB(1.7, 1.52, 1.36);
     // the shortcut is an older, dustier surface
     const offset = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 };
     const asphalt2 =
@@ -273,7 +293,10 @@ export class TrackView {
     const t = this.track;
     const tex = textures().concrete;
     // walls are single strips, visible from both sides
-    const concrete = surfaceMaterial('concrete', { side: THREE.DoubleSide }) ?? new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, side: THREE.DoubleSide });
+    const wallTint = this.desert ? 0xf2e2cc : 0xffffff;
+    const concrete =
+      surfaceMaterial('concrete', { color: wallTint, side: THREE.DoubleSide }) ??
+      new THREE.MeshStandardMaterial({ map: tex, color: wallTint, roughness: 0.95, side: THREE.DoubleSide });
     const concreteTop =
       surfaceMaterial('concrete', { color: 0xd8d6d0, side: THREE.DoubleSide }) ??
       new THREE.MeshStandardMaterial({ map: tex, color: 0xd8d6d0, roughness: 0.95, side: THREE.DoubleSide });
@@ -339,17 +362,19 @@ export class TrackView {
               tyreSpots.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
             }
           }
-          // catch fence on top of the outer edge
-          this.ribbon(s, closed, (p) => side * (p.hw + 2 + WALL_T), (p) => side * (p.hw + 2 + WALL_T), fenceMat, {
-            y0: WALL_H,
-            y1: WALL_H + 42,
-            skip,
-            uvScale: 42,
-          });
-          for (let i = 0; i < s.length; i += 2) {
-            if (skip(i)) continue;
-            const a = this.off(s, i, side * (s[i].hw + 2 + WALL_T), true);
-            postSpots.push(a);
+          // catch fence on top of the outer edge (not in the desert: nothing should hide the view)
+          if (!this.desert) {
+            this.ribbon(s, closed, (p) => side * (p.hw + 2 + WALL_T), (p) => side * (p.hw + 2 + WALL_T), fenceMat, {
+              y0: WALL_H,
+              y1: WALL_H + 42,
+              skip,
+              uvScale: 42,
+            });
+            for (let i = 0; i < s.length; i += 2) {
+              if (skip(i)) continue;
+              const a = this.off(s, i, side * (s[i].hw + 2 + WALL_T), true);
+              postSpots.push(a);
+            }
           }
         }
       }
@@ -708,11 +733,15 @@ export class TrackView {
     }
     this.buildYardClutter(cont);
 
-    // on-track obstacle containers
+  }
+
+  /** On-track obstacle containers (a rusted wreck of a trailer in the desert). */
+  private buildObstacles(): void {
+    const t = this.track;
     for (const o of t.def.obstacles) {
       if (o.kind !== 'container') continue;
       // the Blender container is 110 × 26 × 40; stretch it to the obstacle's footprint
-      for (const [g, mat] of this.containerParts(0xc0501f)) {
+      for (const [g, mat] of this.containerParts(this.desert ? 0x8a4a2e : 0xc0501f)) {
         const mesh = new THREE.Mesh(g, mat);
         mesh.scale.set((o.w ?? 100) / 110, 34 / 26, (o.h ?? 40) / 40);
         mesh.rotation.y = -(o.angle ?? 0);
@@ -808,8 +837,12 @@ export class TrackView {
     const t = this.track;
     const tex = textures().grass;
     const offset = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 };
-    const mat = surfaceMaterial('grass', offset) ?? new THREE.MeshStandardMaterial({ map: tex, roughness: 1, ...offset });
-    const gravel = surfaceMaterial('gravel', offset) ?? new THREE.MeshStandardMaterial({ map: textures().gravel, color: 0xb0a590, roughness: 1, ...offset });
+    // desert: sand verges, red gravel run-off
+    const mat = surfaceMaterial(this.desert ? 'sand' : 'grass', offset) ?? new THREE.MeshStandardMaterial({ map: tex, roughness: 1, ...offset });
+    const gravelTint = this.desert ? 0xe0a080 : 0xffffff;
+    const gravel =
+      surfaceMaterial('gravel', { color: gravelTint, ...offset }) ??
+      new THREE.MeshStandardMaterial({ map: textures().gravel, color: 0xb0a590, roughness: 1, ...offset });
     const curv = this.curvature();
     for (const side of [1, -1]) {
       const skip = (i: number) => {

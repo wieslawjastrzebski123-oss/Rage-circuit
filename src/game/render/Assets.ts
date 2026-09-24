@@ -15,20 +15,23 @@ export interface SurfaceSet {
   orm: THREE.Texture;
 }
 
-export type SurfaceName = 'asphalt' | 'concrete' | 'yard' | 'grass' | 'gravel' | 'corrugated';
-const SURFACES: SurfaceName[] = ['asphalt', 'concrete', 'yard', 'grass', 'gravel', 'corrugated'];
+export type SurfaceName = 'asphalt' | 'concrete' | 'yard' | 'grass' | 'gravel' | 'corrugated' | 'sand' | 'sandstone';
+const SURFACES: SurfaceName[] = ['asphalt', 'concrete', 'yard', 'grass', 'gravel', 'corrugated', 'sand', 'sandstone'];
 
 const surfaces = new Map<SurfaceName, SurfaceSet>();
 /** prop name → material name → geometry */
 const props = new Map<string, Map<string, THREE.BufferGeometry>>();
 
-/** A Blender-made car body (or the shared wheel / turret): parts by material, plus the measurements stored with it. */
-export interface CarAsset {
+/**
+ * A Blender-made object with its parts by material, plus the glTF extras stored with it
+ * (cars: roofY, hoodY, hoodSlope, frontX, rearX, exhaustY, track, wheelR; pumpjack parts: pivot).
+ */
+export interface ModelAsset {
   parts: Map<string, THREE.BufferGeometry>;
-  /** roofY, hoodY, hoodSlope, frontX, rearX, exhaustY, track, wheelR */
   info: Record<string, number>;
 }
-const cars = new Map<string, CarAsset>();
+const cars = new Map<string, ModelAsset>();
+const desert = new Map<string, ModelAsset>();
 let foliage: THREE.Texture | null = null;
 
 // not under /assets/: the server caches that folder forever, while these keep fixed names
@@ -72,13 +75,14 @@ export async function loadAssets(onProgress?: (done: number) => void): Promise<v
   const models = track(new GLTFLoader().loadAsync(url('models/props.glb')))
     .then((gltf) => useProps(gltf.scene))
     .catch(() => console.warn('asset missing: models/props.glb'));
-  const carModels = track(new GLTFLoader().loadAsync(url('models/cars.glb')))
-    .then((gltf) => {
-      for (const node of gltf.scene.children) {
-        cars.set(node.name, { parts: partsOf(node), info: node.userData as Record<string, number> });
-      }
-    })
-    .catch(() => console.warn('asset missing: models/cars.glb'));
+  const collection = (file: string, into: Map<string, ModelAsset>) =>
+    track(new GLTFLoader().loadAsync(url(`models/${file}`)))
+      .then((gltf) => {
+        for (const node of gltf.scene.children) into.set(node.name, { parts: partsOf(node), info: node.userData as Record<string, number> });
+      })
+      .catch(() => console.warn(`asset missing: models/${file}`));
+  const carModels = collection('cars.glb', cars);
+  const desertModels = collection('desert.glb', desert);
   const leaves = track(loadTexture(loader, 'tex/foliage.webp', true)).then((t) => {
     if (!t) return;
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
@@ -88,6 +92,7 @@ export async function loadAssets(onProgress?: (done: number) => void): Promise<v
     ...bake,
     models,
     carModels,
+    desertModels,
     leaves,
     ...SURFACES.map(async (name) => {
       const [map, normalMap, orm] = await Promise.all([
@@ -151,8 +156,17 @@ function partsOf(node: THREE.Object3D): Map<string, THREE.BufferGeometry> {
   return parts;
 }
 
-export function carAsset(name: string): CarAsset | null {
+export function carAsset(name: string): ModelAsset | null {
   return cars.get(name) ?? null;
+}
+
+export function desertModel(name: string): ModelAsset | null {
+  return desert.get(name) ?? null;
+}
+
+/** desert.glb, for the art export script (the game loads it in loadAssets). */
+export function useDesertModels(scene: THREE.Object3D): void {
+  for (const node of scene.children) desert.set(node.name, { parts: partsOf(node), info: node.userData as Record<string, number> });
 }
 
 export function useFoliage(t: THREE.Texture): void {

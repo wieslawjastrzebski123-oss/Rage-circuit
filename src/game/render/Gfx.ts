@@ -8,23 +8,26 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { FXAAPass } from 'three/examples/jsm/postprocessing/FXAAPass.js';
 import { Storage } from '../utils/storage';
 import { setLiveShadow } from './groundBake';
+import { ENVIRONMENTS, sunDirection } from './environments';
+import type { TrackTheme } from '../track/TrackData';
 
-export const FOG_COLOR = 0xa4b4c6;
-
-// late-afternoon sun
-const SUN_ELEVATION = THREE.MathUtils.degToRad(38);
-const SUN_AZIMUTH = THREE.MathUtils.degToRad(-35);
 const SHADOW_RANGE = 750;
-/** ~15% fog at 2000 units, ~85% at the horizon hills (9000) */
-const FOG_DENSITY = 0.000166;
+
+/**
+ * THREE.Fog's near/far uniforms are refreshed on every material each frame, so they carry the
+ * atmospheric fog's settings: near = density x 1e6, far = sun direction packed as
+ * (azimuth + 180)*10*1000 + elevation*10 (degrees, one decimal - exact in a float).
+ */
+function fogParams(density: number, azimuthDeg: number, elevationDeg: number): [number, number] {
+  return [density * 1e6, Math.round((azimuthDeg + 180) * 10) * 1000 + Math.round(elevationDeg * 10)];
+}
 
 /**
  * Atmospheric fog replacing three's flat linear fog for every built-in material:
  * grows smoothly with distance, thins out with altitude (tall buildings poke out of the haze)
  * and warms up when looking towards the sun.
  */
-function installAtmosphericFog(sunDir: THREE.Vector3): void {
-  const v = (n: number) => n.toFixed(4);
+function installAtmosphericFog(): void {
   THREE.ShaderChunk.fog_pars_vertex = `#ifdef USE_FOG
   varying float vFogDepth;
   varying vec3 vFogWorld;
@@ -47,12 +50,31 @@ function installAtmosphericFog(sunDir: THREE.Vector3): void {
   THREE.ShaderChunk.fog_fragment = `#ifdef USE_FOG
   vec3 fogRay = vFogWorld - cameraPosition;
   float fogDist = length( fogRay );
-  float fogAmt = 1.0 - exp( - pow( fogDist * ${v(FOG_DENSITY)}, 1.6 ) );
+  float fogAmt = 1.0 - exp( - pow( fogDist * fogNear * 1e-6, 1.6 ) );
   fogAmt *= mix( 0.6, 1.0, exp( - max( vFogWorld.y, 0.0 ) / 900.0 ) );
-  float sunAmt = pow( max( dot( fogRay / max( fogDist, 1.0 ), vec3( ${v(sunDir.x)}, ${v(sunDir.y)}, ${v(sunDir.z)} ) ), 0.0 ), 6.0 );
+  float fogAz = floor( fogFar / 1000.0 );
+  float fogEl = radians( ( fogFar - fogAz * 1000.0 ) / 10.0 );
+  fogAz = radians( fogAz / 10.0 - 180.0 );
+  vec3 fogSun = vec3( cos( fogEl ) * sin( fogAz ), sin( fogEl ), cos( fogEl ) * cos( fogAz ) );
+  float sunAmt = pow( max( dot( fogRay / max( fogDist, 1.0 ), fogSun ), 0.0 ), 6.0 );
   vec3 fogCol = mix( fogColor, vec3( 1.0, 0.78, 0.52 ), sunAmt * 0.55 );
   gl_FragColor.rgb = mix( gl_FragColor.rgb, fogCol, fogAmt );
 #endif`;
+}
+
+/**
+ * Sky shader tweaks: a per-theme colour grade from horizon to zenith (a warm sunset band),
+ * and a cap on brightness below the bloom threshold – otherwise the bright haze around the sun
+ * floods the screen with glow (tone mapping makes the cap invisible).
+ */
+function patchSky(sky: Sky): void {
+  const m = sky.material;
+  m.uniforms.uTintLow = { value: new THREE.Color(1, 1, 1) };
+  m.uniforms.uTintHigh = { value: new THREE.Color(1, 1, 1) };
+  m.fragmentShader = ('uniform vec3 uTintLow;\nuniform vec3 uTintHigh;\n' + m.fragmentShader).replace(
+    'gl_FragColor = vec4( texColor, 1.0 );',
+    'vec3 graded = texColor * mix( uTintLow, uTintHigh, smoothstep( -0.02, 0.5, direction.y ) );\n\t\t\tgl_FragColor = vec4( min( graded, vec3( 4.0 ) ), 1.0 );',
+  );
 }
 
 /** Final colour grade, run after tone mapping: a touch of contrast and saturation plus a soft vignette. */
@@ -87,6 +109,8 @@ export class Gfx {
   private sky: Sky;
   private sun: THREE.DirectionalLight;
   private sunDir = new THREE.Vector3();
+  private hemi: THREE.HemisphereLight;
+  private theme: TrackTheme | null = null;
   /** post-processing chain (bloom + grade), used only on high quality */
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
@@ -106,62 +130,29 @@ export class Gfx {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.72;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 3, 12000);
-    this.sunDir.setFromSphericalCoords(1, Math.PI / 2 - SUN_ELEVATION, SUN_AZIMUTH);
-    installAtmosphericFog(this.sunDir);
-    // near/far are unused by the atmospheric fog chunk; the fog object just switches it on
-    this.scene.fog = new THREE.Fog(FOG_COLOR, 3200, 11000);
+    installAtmosphericFog();
+    // colour, near and far are set per theme (see fogParams)
+    this.scene.fog = new THREE.Fog(0xffffff, 1, 2);
     this.scene.add(this.root, this.camera);
 
     // physically based sky, follows the camera so it never gets clipped
     this.sky = new Sky();
     this.sky.scale.setScalar(10000);
     const u = this.sky.material.uniforms;
-    u.turbidity.value = 3.5;
-    u.rayleigh.value = 2.2;
-    u.mieCoefficient.value = 0.004;
-    u.mieDirectionalG.value = 0.82;
-    // slow drifting cumulus
-    u.cloudCoverage.value = 0.38;
-    u.cloudDensity.value = 0.55;
+    // slow drifting clouds (how many is set per theme)
     u.cloudScale.value = 0.00022;
     u.cloudSpeed.value = 0.00003;
     u.cloudElevation.value = 0.55;
-    u.sunPosition.value.copy(this.sunDir);
-    // cap the visible sky below the bloom threshold – otherwise the bright haze around the sun
-    // floods the screen with glow (tone mapping makes the cap invisible)
-    this.sky.material.fragmentShader = this.sky.material.fragmentShader.replace(
-      'gl_FragColor = vec4( texColor, 1.0 );',
-      'gl_FragColor = vec4( min( texColor, vec3( 4.0 ) ), 1.0 );',
-    );
+    patchSky(this.sky);
     this.scene.add(this.sky);
 
-    // image-based lighting: paint and glass reflect the same sky the player sees
-    const envScene = new THREE.Scene();
-    const envSky = new Sky();
-    envSky.scale.setScalar(50);
-    envSky.material.uniforms = THREE.UniformsUtils.clone(u);
-    envScene.add(envSky);
-    // dark ground below the horizon so cars don't reflect sky from underneath
-    const envGround = new THREE.Mesh(new THREE.CircleGeometry(40, 24), new THREE.MeshBasicMaterial({ color: 0x2c2a28 }));
-    envGround.rotation.x = -Math.PI / 2;
-    envGround.position.y = -0.5;
-    envScene.add(envGround);
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(envScene, 0.02).texture;
-    this.scene.environmentIntensity = 0.3;
-    pmrem.dispose();
-    envSky.geometry.dispose();
-    envSky.material.dispose();
-    envGround.geometry.dispose();
-    (envGround.material as THREE.Material).dispose();
-
-    this.scene.add(new THREE.HemisphereLight(0xbcd0ff, 0x5a5044, 0.7));
-    this.sun = new THREE.DirectionalLight(0xfff0dc, 2.7);
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 1);
+    this.scene.add(this.hemi);
+    this.sun = new THREE.DirectionalLight(0xffffff, 1);
     const sc = this.sun.shadow.camera;
     sc.left = sc.bottom = -SHADOW_RANGE;
     sc.right = sc.top = SHADOW_RANGE;
@@ -184,10 +175,60 @@ export class Gfx {
     this.composer.addPass(new ShaderPass(GradeShader));
     this.composer.addPass(new FXAAPass());
 
+    this.setEnvironment('industrial');
     this.applySettings();
 
     window.addEventListener('resize', () => this.resize());
     this.resize();
+  }
+
+  /** Sky, sun, fog and ambient light for a track theme (see environments.ts). */
+  setEnvironment(theme: TrackTheme): void {
+    if (theme === this.theme) return;
+    this.theme = theme;
+    const env = ENVIRONMENTS[theme];
+    this.sunDir.set(...sunDirection(env));
+    const u = this.sky.material.uniforms;
+    u.turbidity.value = env.sky.turbidity;
+    u.rayleigh.value = env.sky.rayleigh;
+    u.mieCoefficient.value = env.sky.mie;
+    u.mieDirectionalG.value = env.sky.mieG;
+    u.cloudCoverage.value = env.sky.clouds;
+    u.cloudDensity.value = env.sky.cloudDensity;
+    u.sunPosition.value.copy(this.sunDir);
+    u.uTintLow.value.setHex(env.skyTint[0]);
+    u.uTintHigh.value.setHex(env.skyTint[1]);
+    const fog = this.scene.fog as THREE.Fog;
+    fog.color.setHex(env.fogColor);
+    [fog.near, fog.far] = fogParams(env.fogDensity, env.sunAzimuth, env.sunElevation);
+    this.sun.color.setHex(env.sunColor);
+    this.sun.intensity = env.sunIntensity;
+    this.hemi.color.setHex(env.hemiSky);
+    this.hemi.groundColor.setHex(env.hemiGround);
+    this.hemi.intensity = env.hemiIntensity;
+    this.renderer.toneMappingExposure = env.exposure;
+
+    // image-based lighting: paint and glass reflect the same sky the player sees
+    const envScene = new THREE.Scene();
+    const envSky = new Sky();
+    envSky.scale.setScalar(50);
+    patchSky(envSky);
+    envSky.material.uniforms = THREE.UniformsUtils.clone(u);
+    envScene.add(envSky);
+    // dark ground below the horizon so cars don't reflect sky from underneath
+    const envGround = new THREE.Mesh(new THREE.CircleGeometry(40, 24), new THREE.MeshBasicMaterial({ color: env.envGround }));
+    envGround.rotation.x = -Math.PI / 2;
+    envGround.position.y = -0.5;
+    envScene.add(envGround);
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment?.dispose();
+    this.scene.environment = pmrem.fromScene(envScene, 0.02).texture;
+    this.scene.environmentIntensity = env.envIntensity;
+    pmrem.dispose();
+    envSky.geometry.dispose();
+    envSky.material.dispose();
+    envGround.geometry.dispose();
+    (envGround.material as THREE.Material).dispose();
   }
 
   applySettings(): void {

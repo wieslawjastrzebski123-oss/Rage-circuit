@@ -19,6 +19,7 @@ import { RespawnSystem } from '../systems/RespawnSystem';
 import type { World } from '../systems/World';
 import { getTrack, isTrackId } from '../track/tracks';
 import { TrackView } from '../track/TrackView';
+import { ENVIRONMENTS } from '../render/environments';
 import { DebugOverlay } from '../ui/DebugOverlay';
 import { IS_TOUCH } from '../ui/device';
 import { HUD } from '../ui/HUD';
@@ -110,8 +111,10 @@ export class RaceSession {
       view: (car) => (car === world.player ? { hud: world.hud, effects: world.effects, audio: world.audio } : null),
     };
     this.world = world;
+    gfx.setEnvironment(track.def.theme);
     this.view = new TrackView(track, gfx.root);
     world.effects = new Effects(gfx);
+    world.effects.dust = ENVIRONMENTS[track.def.theme].dust;
     world.combat = new CombatSystem(world);
     world.collisions = new CollisionSystem(world, track.def.obstacles);
     this.pickups = new PickupSystem(world, track.def.pickups);
@@ -203,6 +206,7 @@ export class RaceSession {
       for (const c of this.view.chimneys) fx.chimneySmoke(c.x, c.y, c.h);
     }
     fx.update(frameDt);
+    this.view.update(this.world.time);
     this.updateAudio();
     if (this.hud && this.world.player) this.hud.update(frameDt, this.world.player, this.race, this.world.cars);
     this.updateCrosshair();
