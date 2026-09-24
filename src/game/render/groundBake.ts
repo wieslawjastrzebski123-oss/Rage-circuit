@@ -1,13 +1,25 @@
 import * as THREE from 'three';
+import type { TrackId } from '../track/TrackData';
 
 /**
- * Lighting baked in Blender for the (single) track, stored in one image seen from above:
+ * Lighting baked in Blender for each track, stored in one image seen from above:
  *   R = ambient occlusion (dark where walls, containers, buildings and trees shelter the ground)
  *   G = sun shadow (used where the live shadow map doesn't reach, and everywhere on low quality)
  *   B = large-scale colour variation and rubber laid down along the racing line (0.5 = neutral)
- * Rebuild with `npm run art:ground` whenever the scenery layout in TrackView changes.
+ * Rebuild with `npm run art:ground -- <track>` whenever that track's scenery layout changes.
  */
-export const BAKE_AREA = { x0: -1000, z0: -1000, width: 9900, height: 7600, px: 3072, py: 2358 };
+export interface BakeArea {
+  x0: number;
+  z0: number;
+  width: number;
+  height: number;
+  px: number;
+  py: number;
+}
+export const BAKE_AREAS: Record<TrackId, BakeArea> = {
+  industrial: { x0: -1000, z0: -1000, width: 9900, height: 7600, px: 3072, py: 2358 },
+  canyon: { x0: -1500, z0: -1500, width: 10800, height: 10000, px: 3072, py: 2844 },
+};
 
 /** The live shadow map covers about this far around the camera target (see Gfx SHADOW_RANGE). */
 const LIVE_SHADOW_FADE: [number, number] = [600, 720];
@@ -18,12 +30,19 @@ const uniforms = {
   uSunCentre: { value: new THREE.Vector2() },
 };
 
-export function setBakeTexture(t: THREE.Texture): void {
-  uniforms.uBake.value = t;
+const bakes = new Map<TrackId, THREE.Texture>();
+let current: TrackId | null = null;
+
+export function setBakeTexture(track: TrackId, t: THREE.Texture): void {
+  bakes.set(track, t);
 }
 
-export function hasBake(): boolean {
-  return uniforms.uBake.value !== null;
+/** Selects the track whose bake materials built from now on use; false if it has none. */
+export function useBake(track: TrackId): boolean {
+  const t = bakes.get(track) ?? null;
+  current = t ? track : null;
+  uniforms.uBake.value = t;
+  return t !== null;
 }
 
 /** Called by Gfx: whether live shadows are on, and where they are centred. */
@@ -39,9 +58,10 @@ const f = (n: number) => n.toFixed(1);
  * 'upright' – walls, buildings, props: occlusion only, fading out within a few metres above the ground.
  */
 export function applyBake(mat: THREE.Material, mode: 'ground' | 'upright'): void {
-  if (!hasBake() || mat.userData.bake || !(mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) return;
+  if (!current || mat.userData.bake || !(mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) return;
   mat.userData.bake = mode;
-  const { x0, z0, width, height } = BAKE_AREA;
+  const track = current;
+  const { x0, z0, width, height } = BAKE_AREAS[track];
   // keep any shader tweak the material already has (e.g. foliage normals)
   const prev = mat.onBeforeCompile.bind(mat);
   const prevKey = mat.customProgramCacheKey.bind(mat);
@@ -91,6 +111,6 @@ uniform vec2 uSunCentre;`,
   reflectedLight.directSpecular *= bakeSun;`,
       );
   };
-  mat.customProgramCacheKey = () => `${prevKey()}|bake-${mode}`;
+  mat.customProgramCacheKey = () => `${prevKey()}|bake-${track}-${mode}`;
   mat.needsUpdate = true;
 }

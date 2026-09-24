@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { setBakeTexture } from './groundBake';
+import { TRACK_IDS } from '../track/tracks';
 
 /**
  * Image assets made in Blender (see art/blender/*.py), loaded once before the game starts.
@@ -61,11 +62,13 @@ export async function loadAssets(onProgress?: (done: number) => void): Promise<v
     total++;
     return p.finally(() => onProgress?.(++done / total));
   };
-  const bake = track(loadTexture(loader, 'tex/track_bake.webp', false)).then((t) => {
-    if (!t) return;
-    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-    setBakeTexture(t);
-  });
+  const bake = TRACK_IDS.map((id) =>
+    track(loadTexture(loader, `tex/bake_${id}.webp`, false)).then((t) => {
+      if (!t) return;
+      t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+      setBakeTexture(id, t);
+    }),
+  );
   const models = track(new GLTFLoader().loadAsync(url('models/props.glb')))
     .then((gltf) => useProps(gltf.scene))
     .catch(() => console.warn('asset missing: models/props.glb'));
@@ -82,7 +85,7 @@ export async function loadAssets(onProgress?: (done: number) => void): Promise<v
     useFoliage(t);
   });
   await Promise.all([
-    bake,
+    ...bake,
     models,
     carModels,
     leaves,

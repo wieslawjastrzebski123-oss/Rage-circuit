@@ -17,15 +17,14 @@ import { PickupSystem } from '../systems/PickupSystem';
 import { RaceManager } from '../systems/RaceManager';
 import { RespawnSystem } from '../systems/RespawnSystem';
 import type { World } from '../systems/World';
-import { Track } from '../track/Track';
-import { INDUSTRIAL_DISTRICT } from '../track/TrackData';
+import { getTrack, isTrackId } from '../track/tracks';
 import { TrackView } from '../track/TrackView';
 import { DebugOverlay } from '../ui/DebugOverlay';
 import { IS_TOUCH } from '../ui/device';
 import { HUD } from '../ui/HUD';
 import { button, h, layer, setCrosshair } from '../ui/dom';
 import { pick, shuffle } from '../utils/math';
-import { Storage, type Loadout } from '../utils/storage';
+import { bestLap as storedBestLap, recordKey, setBestLap, Storage, type Loadout } from '../utils/storage';
 import { createWeapon } from '../weapons';
 
 export interface RaceResults {
@@ -50,11 +49,6 @@ export interface SessionHooks {
   onMainMenu: () => void;
 }
 
-let cachedTrack: Track | null = null;
-export function getTrack(): Track {
-  if (!cachedTrack) cachedTrack = new Track(INDUSTRIAL_DISTRICT);
-  return cachedTrack;
-}
 
 const MAX_SUBSTEP = 1 / 100;
 
@@ -96,7 +90,9 @@ export class RaceSession {
     this.hooks = hooks;
     gfx.resetRoot();
 
-    const track = getTrack();
+    // the demo race behind the menus runs on the circuit last picked in the garage
+    const trackId = loadout?.track ?? Storage.getLoadout().track;
+    const track = getTrack(isTrackId(trackId) ? trackId : 'industrial');
     const audio = AudioManager.instance;
     const world: World = {
       gfx,
@@ -157,7 +153,7 @@ export class RaceSession {
       };
       audio.startEngine();
       setCrosshair(true);
-      this.hud.announce('INDUSTRIAL DISTRICT', '#ff2d6f', 2200);
+      this.hud.announce(track.def.name, '#ff2d6f', 2200);
       window.addEventListener('keydown', this.onKey);
       window.addEventListener('blur', this.onBlur);
       window.addEventListener('resize', this.onPhoneChange);
@@ -280,17 +276,16 @@ export class RaceSession {
     const lo = this.loadout!;
     const bestLap = Math.min(...p.race.lapTimes);
     const rec = Storage.getRecords();
-    const key = String(this.race.laps);
+    const trackId = this.world.track.def.id;
+    const key = recordKey(trackId, this.race.laps);
     const prevBest = rec.bestRace[key];
     const newBestRace = !prevBest || p.race.finishTime * 1000 < prevBest.time;
-    const newBestLap = rec.bestLapTime === null || bestLap * 1000 < rec.bestLapTime;
+    const prevLap = storedBestLap(rec, trackId);
+    const newBestLap = !prevLap || bestLap * 1000 < prevLap.time;
     if (newBestRace) {
       rec.bestRace[key] = { time: p.race.finishTime * 1000, car: lo.car };
     }
-    if (newBestLap) {
-      rec.bestLapTime = bestLap * 1000;
-      rec.bestLapCar = lo.car;
-    }
+    if (newBestLap) setBestLap(rec, trackId, bestLap * 1000, lo.car);
     const position = this.race.positionOf(p);
     rec.racesFinished++;
     if (position === 1) rec.wins++;

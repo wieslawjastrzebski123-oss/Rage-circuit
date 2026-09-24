@@ -528,7 +528,8 @@ code {
   background: rgba(0, 229, 255, 0.12);
 }
 
-.lap-opt.diff {
+.lap-opt.diff,
+.lap-opt.track {
   font-size: 14px;
   padding-left: 14px;
   padding-right: 14px;

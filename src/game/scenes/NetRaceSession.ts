@@ -6,6 +6,7 @@ import { NetCar } from '../entities/NetCar';
 import { Projectile, type ProjectileKind } from '../entities/Projectile';
 import type { NetClient } from '../net/NetClient';
 import {
+  CF_AIR,
   CF_ALIVE,
   CF_BOOSTING,
   CF_DRIFT,
@@ -37,7 +38,8 @@ import { HUD, type RaceInfo } from '../ui/HUD';
 import { button, h, layer, setCrosshair } from '../ui/dom';
 import { angleDiff, lerp } from '../utils/math';
 import { createWeapon } from '../weapons';
-import { getTrack } from './RaceSession';
+import { getTrack } from '../track/tracks';
+import type { TrackId } from '../track/TrackData';
 
 /** Other cars are shown this far in the past so there are always two snapshots to blend. */
 /** base interpolation delay (s); grows automatically on a jittery connection */
@@ -112,13 +114,13 @@ export class NetRaceSession implements RaceInfo {
     if (e.code === 'Escape') this.toggleMenu();
   };
 
-  constructor(gfx: Gfx, net: NetClient, start: { laps: number; cars: CarSetup[] }, hooks: NetHooks) {
+  constructor(gfx: Gfx, net: NetClient, start: { laps: number; track: TrackId; cars: CarSetup[] }, hooks: NetHooks) {
     this.gfx = gfx;
     this.net = net;
     this.hooks = hooks;
     this.laps = start.laps;
     gfx.resetRoot();
-    const track = getTrack();
+    const track = getTrack(start.track);
     const audio = AudioManager.instance;
 
     const world: World = {
@@ -191,7 +193,7 @@ export class NetRaceSession implements RaceInfo {
     this.hud.selfName = mySetup.name;
     world.hud = this.hud;
     this.hud.touch = this.input.touch;
-    this.hud.announce('INDUSTRIAL DISTRICT', '#ff2d6f', 2200);
+    this.hud.announce(track.def.name, '#ff2d6f', 2200);
     audio.startEngine();
     setCrosshair(true);
     window.addEventListener('keydown', this.onKey);
@@ -311,6 +313,9 @@ export class NetRaceSession implements RaceInfo {
     car.frozenTime = t[18];
     car.hp = t[19];
     car.driftBoostColor = t[27];
+    car.z = t[28] ?? 0;
+    car.vz = t[29] ?? 0;
+    car.airborne = (flags & CF_AIR) !== 0;
     if (withControls) {
       car.aimAngle = t[8];
       car.controls.throttle = t[20];
@@ -472,6 +477,7 @@ export class NetRaceSession implements RaceInfo {
       car.y = lerp(ta[2], tb[2], k);
       car.heading = ta[3] + angleDiff(ta[3], tb[3]) * k;
       car.aimAngle = ta[8] + angleDiff(ta[8], tb[8]) * k;
+      car.z = lerp(ta[28] ?? 0, tb[28] ?? 0, k);
     }
   }
 
@@ -491,6 +497,9 @@ export class NetRaceSession implements RaceInfo {
     me.angVel = p.angVel;
     me.bodyYaw = p.bodyYaw;
     me.aimAngle = p.aimAngle;
+    me.z = p.z;
+    me.vz = p.vz;
+    me.airborne = p.airborne;
     if (p.alive !== me.alive) me.setAlive(p.alive);
     me.drifting = p.drifting;
     me.driftTime = p.driftTime;

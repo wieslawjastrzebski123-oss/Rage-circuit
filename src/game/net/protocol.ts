@@ -1,8 +1,10 @@
 import type { CarId } from '../data/cars';
 import type { WeaponId } from '../data/weapons';
+import type { TrackId } from '../track/TrackData';
 
 /** Shared between the browser client and the Node server. */
-export const PROTOCOL_VERSION = 1;
+// 2: track choice, car height (jumps)
+export const PROTOCOL_VERSION = 2;
 export const TICK_RATE = 60; // server simulation ticks per second
 export const SUBSTEPS = 2; // physics sub-steps per tick (dt = 1/120 like solo)
 export const SNAPSHOT_EVERY = 2; // ticks per snapshot → 30 Hz
@@ -45,6 +47,7 @@ export type ClientMsg =
   | { t: 'loadout'; car: CarId; primary: WeaponId; secondary: WeaponId }
   | { t: 'ready'; ready: boolean }
   | { t: 'laps'; laps: number }
+  | { t: 'track'; track: TrackId }
   | { t: 'start' }
   | { t: 'in'; s: number; i: InputTuple }
   | { t: 'lobby' }
@@ -66,9 +69,9 @@ export interface NetResults {
 
 export type ServerMsg =
   | { t: 'welcome'; you: number; code: string }
-  | { t: 'lobby'; players: LobbyPlayer[]; laps: number; racing: boolean }
+  | { t: 'lobby'; players: LobbyPlayer[]; laps: number; track: TrackId; racing: boolean }
   | { t: 'error'; msg: string }
-  | { t: 'start'; laps: number; cars: CarSetup[] }
+  | { t: 'start'; laps: number; track: TrackId; cars: CarSetup[] }
   | Snapshot
   | { t: 'results'; res: NetResults }
   | { t: 'raceOver' }
@@ -78,7 +81,7 @@ export type ServerMsg =
  * Per-car public state:
  * [id, x, y, heading, vx, vy, angVel, bodyYaw, aim, flags, driftTime, boostPower,
  *  driftBoostTime, overcharge, shield, emp, ghost, hitFlash, frozen, hp, throttle, steer,
- *  progress, lapsDone, finishOrder, finishTime, cpPassed, driftBoostColor]
+ *  progress, lapsDone, finishOrder, finishTime, cpPassed, driftBoostColor, z, vz]
  */
 export type CarTuple = number[];
 export const CF_ALIVE = 1;
@@ -88,6 +91,7 @@ export const CF_FINISHED = 8;
 export const CF_UNLOCK1 = 16;
 export const CF_UNLOCK2 = 32;
 export const CF_UNLOCK3 = 64;
+export const CF_AIR = 128;
 
 /** Private state for the receiving player's own car (prediction + HUD). */
 export interface OwnState {

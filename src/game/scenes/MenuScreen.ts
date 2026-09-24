@@ -3,7 +3,8 @@ import { CARS } from '../data/cars';
 import { AudioManager } from '../systems/AudioManager';
 import { button, h, layer } from '../ui/dom';
 import { formatTime } from '../utils/math';
-import { Storage } from '../utils/storage';
+import { bestLap, recordKey, Storage } from '../utils/storage';
+import { isTrackId, TRACKS } from '../track/tracks';
 import type { App } from '../App';
 
 /** Title screen: PLAY / HOW TO PLAY / SETTINGS, over the attract-mode race. */
@@ -36,7 +37,7 @@ export class MenuScreen {
     const root = this.reset();
     const wrap = h('div', 'title-wrap', undefined, root);
     h('div', 'logo', '<span class="rage">RAGE</span><span class="circuit">CIRCUIT</span>', wrap);
-    h('div', 'tagline', 'Drift. Boost. Shoot. Survive five laps of the Industrial District.', wrap);
+    h('div', 'tagline', 'Drift. Boost. Shoot. Jump. Survive five laps.', wrap);
     const col = h('div', 'col main-buttons', undefined, wrap);
     button('PLAY', col, () => {
       this.click();
@@ -58,10 +59,13 @@ export class MenuScreen {
     const r = Storage.getRecords();
     const rec = h('div', 'records', undefined, wrap);
     const carName = (id: string | null) => (id ? CARS[id as keyof typeof CARS].name : '');
-    const laps = Storage.getLoadout().laps ?? 5;
-    const br = r.bestRace?.[String(laps)];
+    const lo = Storage.getLoadout();
+    const track = isTrackId(lo.track) ? lo.track : 'industrial';
+    const laps = lo.laps ?? 5;
+    const br = r.bestRace?.[recordKey(track, laps)];
+    const bl = bestLap(r, track);
     h('div', '', `<span>BEST RACE · ${laps} ${laps === 1 ? 'LAP' : 'LAPS'}</span><b>${br ? formatTime(br.time) : '--'}</b><em>${carName(br?.car ?? null)}</em>`, rec);
-    h('div', '', `<span>BEST LAP</span><b>${r.bestLapTime ? formatTime(r.bestLapTime) : '--'}</b><em>${carName(r.bestLapCar)}</em>`, rec);
+    h('div', '', `<span>BEST LAP · ${TRACKS[track].name}</span><b>${bl ? formatTime(bl.time) : '--'}</b><em>${carName(bl?.car ?? null)}</em>`, rec);
     h('div', '', `<span>WINS</span><b>${r.wins} / ${r.racesFinished}</b><em>races</em>`, rec);
     h('div', 'footer', `${IS_TOUCH ? 'Touch controls · play in landscape' : 'Desktop · keyboard + mouse'} · add <code>?debug=true</code> to the URL for debug view · build ${__BUILD_STAMP__}`, root);
   }

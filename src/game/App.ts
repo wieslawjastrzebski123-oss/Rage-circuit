@@ -8,6 +8,7 @@ import { OnlineScreen } from './scenes/OnlineScreen';
 import { RaceSession, type RaceResults } from './scenes/RaceSession';
 import { ResultsScreen } from './scenes/ResultsScreen';
 import type { Loadout } from './utils/storage';
+import type { TrackId } from './track/TrackData';
 
 interface Screen {
   destroy(): void;
@@ -88,7 +89,7 @@ export class App {
     this.setScreen(new OnlineScreen(this, net));
   }
 
-  startNetRace(net: NetClient, start: { laps: number; cars: CarSetup[] }): void {
+  startNetRace(net: NetClient, start: { laps: number; track: TrackId; cars: CarSetup[] }): void {
     // the lobby hands its connection over instead of closing it
     if (this.screen instanceof OnlineScreen) this.screen.detach();
     this.setScreen(null);

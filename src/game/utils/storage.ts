@@ -1,6 +1,7 @@
 import { IS_TOUCH } from '../ui/device';
 import type { CarId } from '../data/cars';
 import type { WeaponId } from '../data/weapons';
+import type { TrackId } from '../track/TrackData';
 
 /** Everything persisted locally. Nothing sensitive is stored. */
 export interface Settings {
@@ -16,6 +17,7 @@ export interface Settings {
 export type Difficulty = 'easy' | 'normal' | 'hard';
 
 export interface Loadout {
+  track: TrackId;
   car: CarId;
   primary: WeaponId;
   secondary: WeaponId;
@@ -25,10 +27,13 @@ export interface Loadout {
 }
 
 export interface Records {
-  /** best race time per lap count, ms */
+  /** best race time per lap count, ms – keyed by recordKey() */
   bestRace: Record<string, { time: number; car: CarId }>;
-  bestLapTime: number | null; // ms
+  /** Industrial District's best lap (kept from before there were other tracks), ms */
+  bestLapTime: number | null;
   bestLapCar: CarId | null;
+  /** best lap on the other tracks, ms */
+  bestLaps: Record<string, { time: number; car: CarId }>;
   racesFinished: number;
   wins: number;
 }
@@ -44,11 +49,12 @@ export interface OnlinePrefs {
 }
 
 const DEFAULT_SETTINGS: Settings = { masterVolume: 0.7, sfxVolume: 0.8, cameraShake: 0.8, quality: IS_TOUCH ? 'low' : 'high', steerSensitivity: 1 }; // phones start on the lighter setting
-const DEFAULT_LOADOUT: Loadout = { car: 'viper', primary: 'machinegun', secondary: 'rocket', laps: 5, difficulty: 'normal' };
+const DEFAULT_LOADOUT: Loadout = { track: 'industrial', car: 'viper', primary: 'machinegun', secondary: 'rocket', laps: 5, difficulty: 'normal' };
 const DEFAULT_RECORDS: Records = {
   bestRace: {},
   bestLapTime: null,
   bestLapCar: null,
+  bestLaps: {},
   racesFinished: 0,
   wins: 0,
 };
@@ -68,6 +74,25 @@ function write(key: string, value: unknown): void {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
     /* storage unavailable (private mode etc.) – ignore */
+  }
+}
+
+/** Industrial District keeps its original keys ("5"), so records from before the second track survive. */
+export function recordKey(track: TrackId, laps: number): string {
+  return track === 'industrial' ? String(laps) : `${track}:${laps}`;
+}
+
+export function bestLap(r: Records, track: TrackId): { time: number; car: CarId } | null {
+  if (track === 'industrial') return r.bestLapTime !== null && r.bestLapCar ? { time: r.bestLapTime, car: r.bestLapCar } : null;
+  return r.bestLaps?.[track] ?? null;
+}
+
+export function setBestLap(r: Records, track: TrackId, time: number, car: CarId): void {
+  if (track === 'industrial') {
+    r.bestLapTime = time;
+    r.bestLapCar = car;
+  } else {
+    r.bestLaps = { ...(r.bestLaps ?? {}), [track]: { time, car } };
   }
 }
 

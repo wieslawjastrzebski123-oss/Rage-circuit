@@ -55,6 +55,8 @@ export class Effects {
   private shakeTime = 0;
   private shakeDur = 1;
   /** world position the camera is looking at (for distance-scaled shakes) */
+  /** tyre smoke / landing dust colours – sandy on the desert track */
+  dust: [number, number] = [0xd4d7de, 0xaeb2ba];
   focusX = 0;
   focusY = 0;
 
@@ -221,8 +223,8 @@ export class Effects {
       size1: rand(55, 75),
       alpha0: 0.5,
       alpha1: 0,
-      color0: 0xd4d7de,
-      color1: 0xaeb2ba,
+      color0: this.dust[0],
+      color1: this.dust[1],
       drag: 1.8,
       spin: rand(0.4, 1.4),
     });
@@ -243,6 +245,45 @@ export class Effects {
       });
       this.add.emit({ x, y: 2, z: y, life: 0.12, size0: 16, size1: 4, alpha0: 0.8, color0: tint, glow: 2 });
     }
+  }
+
+  /** A car coming down from a jump: a ring of dust thrown out from the wheels. */
+  landingDust(x: number, y: number, strength: number): void {
+    const n = Math.min(16, 5 + Math.floor(strength / 30));
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rand(-0.2, 0.2);
+      const sp = rand(60, 140) + strength * 0.25;
+      this.norm.emit({
+        x: x + Math.cos(a) * 14,
+        y: 3,
+        z: y + Math.sin(a) * 14,
+        vx: Math.cos(a) * sp,
+        vy: rand(15, 45),
+        vz: Math.sin(a) * sp,
+        life: rand(0.7, 1.2),
+        size0: 14,
+        size1: rand(50, 80),
+        alpha0: 0.55,
+        alpha1: 0,
+        color0: this.dust[0],
+        color1: this.dust[1],
+        drag: 2.4,
+        spin: rand(0.4, 1.4),
+      });
+    }
+    if (strength > 200) this.shockwave(x, y, 50 + strength * 0.1, 0xfff0d0, 260);
+  }
+
+  /** Crushed from above by a jumping car. */
+  stomp(x: number, y: number): void {
+    this.shockwave(x, y, 90, 0xffd23f, 320);
+    this.flash(x, y, 0xffc060, 4, 0.25);
+    for (let i = 0; i < 24; i++) {
+      const a = rand(0, Math.PI * 2);
+      const sp = rand(120, 360);
+      this.add.emit({ x, y: 10, z: y, vx: Math.cos(a) * sp, vy: rand(60, 260), vz: Math.sin(a) * sp, life: rand(0.2, 0.5), size0: 6, size1: 1, color0: 0xffe0a0, gravity: -600, glow: 4 });
+    }
+    this.floatText(x, y, 'STOMP!', 0xffd23f, 22);
   }
 
   boostTrail(x: number, y: number, color: number): void {

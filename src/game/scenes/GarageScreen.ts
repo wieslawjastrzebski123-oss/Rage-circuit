@@ -7,6 +7,7 @@ import { Storage, type Difficulty, type Loadout } from '../utils/storage';
 import { DEFAULT_LAPS, LAP_OPTIONS } from '../constants';
 import type { App } from '../App';
 import { carPreview } from './CarPreview';
+import { isTrackId, TRACK_IDS, TRACKS } from '../track/tracks';
 
 /** SELECT YOUR CAR → SELECT LOADOUT → START RACE */
 export class GarageScreen {
@@ -116,6 +117,23 @@ export class GarageScreen {
     if (!SECONDARY_WEAPONS.includes(this.loadout.secondary)) this.loadout.secondary = 'rocket';
     group('PRIMARY', PRIMARY_WEAPONS, 'primary', IS_TOUCH ? 'FIRE' : 'LEFT MOUSE');
     group('SECONDARY', SECONDARY_WEAPONS, 'secondary', IS_TOUCH ? 'ALT' : 'RIGHT MOUSE / Q');
+
+    // circuit
+    if (!isTrackId(this.loadout.track)) this.loadout.track = 'industrial';
+    const trackRow = h('div', 'laps-select', undefined, root);
+    h('h3', '', 'TRACK', trackRow);
+    const trackBtns: HTMLElement[] = [];
+    for (const id of TRACK_IDS) {
+      const b = h('button', `lap-opt track ${this.loadout.track === id ? 'selected' : ''}`, TRACKS[id].name, trackRow);
+      b.title = TRACKS[id].tagline;
+      b.addEventListener('click', () => {
+        this.click();
+        this.loadout.track = id;
+        trackBtns.forEach((x) => x.classList.remove('selected'));
+        b.classList.add('selected');
+      });
+      trackBtns.push(b);
+    }
 
     // race length
     if (!LAP_OPTIONS.includes(this.loadout.laps)) this.loadout.laps = DEFAULT_LAPS;

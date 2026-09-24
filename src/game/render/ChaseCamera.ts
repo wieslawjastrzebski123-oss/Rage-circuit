@@ -98,7 +98,8 @@ export class ChaseCamera {
     const free = this.freeFraction(this.x, this.y, c, s, this.dist);
     this.clearance = free < this.clearance ? damp(this.clearance, free, 10, dt) : damp(this.clearance, free, 2, dt);
     const dist = this.dist * this.clearance;
-    const lift = (1 - this.clearance) * 55;
+    // follow a jump up, but only partly – the arc should read as height, not as a camera move
+    const lift = (1 - this.clearance) * 55 + car.z * 0.55;
     const cam = this.gfx.camera;
     const sh = fx.shakeNow;
     cam.position.set(
@@ -106,7 +107,7 @@ export class ChaseCamera {
       this.height + lift + (Math.random() - 0.5) * sh * 0.6,
       this.y - s * dist + (Math.random() - 0.5) * sh,
     );
-    cam.lookAt(this.x + c * 70, 14, this.y + s * 70);
+    cam.lookAt(this.x + c * 70, 14 + car.z * 0.7, this.y + s * 70);
     if (Math.abs(cam.fov - this.fov) > 0.05) {
       cam.fov = this.fov;
       cam.updateProjectionMatrix();

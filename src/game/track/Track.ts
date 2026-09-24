@@ -1,5 +1,5 @@
 import { catmullRom, clamp, closestOnSegment, type Vec } from '../utils/math';
-import type { ControlPoint, TrackDef } from './TrackData';
+import type { ControlPoint, JumpDef, TrackDef } from './TrackData';
 
 /** One straight piece of drivable road (a capsule of radius hw around a→b). */
 export interface Seg {
@@ -71,6 +71,8 @@ export class Track {
   readonly checkpoints: number[] = [];
   readonly shortcutRange: [number, number];
   readonly routes: { main: Route; shortcut: Route };
+  /** kicker ramps with their direction pre-computed */
+  readonly ramps: (JumpDef & { cos: number; sin: number })[];
 
   private buckets: Seg[][];
   private bucketCols: number;
@@ -84,6 +86,7 @@ export class Track {
     this.def = def;
     this.width = def.worldWidth;
     this.height = def.worldHeight;
+    this.ramps = def.jumps.map((j) => ({ ...j, cos: Math.cos(j.angle), sin: Math.sin(j.angle) }));
 
     // ---- sample main loop, re-index so s = 0 is at the start line ----
     let mainPts = sampleSpline(def.main, true);
@@ -344,6 +347,25 @@ export class Track {
       o.ny = best.tx;
     }
     return o;
+  }
+
+  /**
+   * Height of the drivable surface: 0 on the road, up to a ramp's lip height on a kicker.
+   * The ramp rises with the square of the distance up it, so it launches steeper than it looks.
+   */
+  groundHeight(x: number, y: number): number {
+    let h = 0;
+    for (const r of this.ramps) {
+      const dx = x - r.x;
+      const dy = y - r.y;
+      const u = dx * r.cos + dy * r.sin;
+      if (u > 0 || u < -r.length) continue;
+      const v = -dx * r.sin + dy * r.cos;
+      if (Math.abs(v) > r.width / 2) continue;
+      const t = (u + r.length) / r.length;
+      h = Math.max(h, r.height * t * t);
+    }
+    return h;
   }
 
   isDrivable(x: number, y: number): boolean {

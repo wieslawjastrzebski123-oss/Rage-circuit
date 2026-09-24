@@ -18,6 +18,12 @@ const WALL_MARGIN = 4; // lets the car body touch the barrier line before it is 
 const WALL_BOUNCE = 0.3;
 const WALL_DAMAGE_THRESHOLD = 380;
 const RAM_DAMAGE_THRESHOLD = 260;
+/** cars further apart than this vertically pass over / under each other */
+const CAR_HEIGHT = 14;
+/** containers (and the wrecks standing in for them) – a jumping car can clear them */
+const BOX_HEIGHT = 34;
+/** barrels: a car higher than this sails over */
+const BARREL_CLEARANCE = 12;
 
 export class CollisionSystem {
   private world: World;
@@ -141,6 +147,7 @@ export class CollisionSystem {
 
   private circleVsBox(obj: { x: number; y: number; vx: number; vy: number; radius: number }, b: OBB, isCar: boolean): void {
     if (dist2(obj.x, obj.y, b.cx, b.cy) > (b.hw + b.hh + obj.radius + 10) ** 2) return;
+    if (isCar && (obj as Car).z > BOX_HEIGHT) return;
     const c = this.closestOnBox(obj.x, obj.y, b);
     if (c.d >= obj.radius) return;
     const push = obj.radius - c.d;
@@ -185,6 +192,9 @@ export class CollisionSystem {
     const rr = a.radius + b.radius + 2;
     const d2 = dx * dx + dy * dy;
     if (d2 >= rr * rr || d2 === 0) return;
+    if (a.stomping(b)) return this.stomp(a, b);
+    if (b.stomping(a)) return this.stomp(b, a);
+    if (Math.abs(a.z - b.z) > CAR_HEIGHT) return;
     const d = Math.sqrt(d2);
     const nx = dx / d;
     const ny = dy / d;
@@ -226,6 +236,21 @@ export class CollisionSystem {
       w.combat.applyDamage(a, base * Math.sqrt(b.mass / a.mass), b, 'ram');
       w.combat.applyDamage(b, base * Math.sqrt(a.mass / b.mass), a, 'ram');
     }
+  }
+
+  /** `top` comes down on `under`: heavy damage, and `top` bounces off it. */
+  private stomp(top: Car, under: Car): void {
+    const w = this.world;
+    const fall = -top.vz;
+    w.combat.applyDamage(under, 14 + fall * 0.06 * Math.sqrt(top.mass), top, 'stomp');
+    top.vz = 150;
+    under.vx *= 0.75;
+    under.vy *= 0.75;
+    under.jolt(fall);
+    w.effects.stomp(under.x, under.y);
+    w.audio.carHit(top.isPlayer ? top : under, 400);
+    w.view(top)?.effects.shake(0.01, 160);
+    w.view(under)?.effects.shake(0.014, 200);
   }
 
   // ------------------------------------------------------------------ barrels
@@ -270,7 +295,7 @@ export class CollisionSystem {
       }
       for (const box of this.containers) this.circleVsBox(b, box, false);
       for (const car of w.cars) {
-        if (car.isGhost) continue;
+        if (car.isGhost || car.z > BARREL_CLEARANCE) continue;
         const dx = b.x - car.x;
         const dy = b.y - car.y;
         const rr = b.radius + car.radius;

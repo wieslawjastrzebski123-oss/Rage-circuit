@@ -33,6 +33,13 @@ const DRIFT_KEEP_SPEED = 150;
 const BOOST_DRAIN = 36;
 const BOOST_PASSIVE = 2.5;
 const BOOST_FROM_DRIFT = 11;
+/** jumps: world units/s² (a car is 52 long, so ~2× real gravity – arcade hang time without floatiness) */
+export const GRAVITY = 340;
+/** fastest the ground can throw a car upwards (a ramp's lip at top speed) */
+const MAX_LAUNCH = 420;
+const BOOST_FROM_AIR = 14;
+/** landing on another car from at least this far down (units/s) crushes it */
+const STOMP_SPEED = 60;
 
 export interface RaceState {
   s: number;
@@ -74,6 +81,11 @@ export class Car {
   heading = 0;
   angVel = 0;
   readonly radius = CAR_RADIUS;
+  /** height above the road (ramps and jumps) and its rate of change */
+  z = 0;
+  vz = 0;
+  airborne = false;
+  airTime = 0;
 
   // resources
   hp: number;
@@ -220,6 +232,10 @@ export class Car {
     this.driftTime = 0;
     this.bodyYaw = 0;
     this.aimAngle = heading;
+    this.z = 0;
+    this.vz = 0;
+    this.airborne = false;
+    this.airTime = 0;
   }
 
   /** Controllers (player input / AI) fill `controls` here. */
@@ -248,6 +264,7 @@ export class Car {
       this.y += this.vy * dt;
       this.angVel *= Math.exp(-2 * dt);
       this.heading += this.angVel * dt;
+      this.stepVertical(dt);
       return;
     }
 
@@ -291,6 +308,20 @@ export class Car {
     this.boostPower = bp;
     const speedCap = st.maxSpeed * (1 + 0.3 * bp);
     const accel = st.acceleration * (1 + 1.3 * bp) * this.rubberBand;
+
+    // -------- in the air: ballistic, no traction – just a little yaw control to line up the landing
+    if (this.airborne) {
+      if (this.drifting) this.endDrift(true);
+      this.airTime += dt;
+      this.boostMeter = Math.min(100, this.boostMeter + BOOST_FROM_AIR * dt);
+      this.angVel = damp(this.angVel, steer * st.handling * 0.35, 4, dt);
+      this.heading = wrapAngle(this.heading + this.angVel * dt);
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      this.bodyYaw = damp(this.bodyYaw, 0, 8, dt);
+      this.stepVertical(dt);
+      return;
+    }
 
     // -------- drift state machine
     let kick = 0;
@@ -376,6 +407,60 @@ export class Car {
     this.y += this.vy * dt;
 
     this.bodyYaw = damp(this.bodyYaw, this.drifting ? this.driftDir * 0.28 : 0, 8, dt);
+    this.stepVertical(dt);
+  }
+
+  /**
+   * Height: follow the road (and ramps) while the ground stays under the car's ballistic path,
+   * take off when it drops away faster than gravity would (a ramp's lip), fall and land otherwise.
+   */
+  private stepVertical(dt: number): void {
+    const g = this.world.track.groundHeight(this.x, this.y);
+    if (!this.airborne) {
+      const ballistic = this.z + this.vz * dt - 0.5 * GRAVITY * dt * dt;
+      if (g >= ballistic) {
+        // a sudden step (driving onto a ramp from its side or top) is a pop, not a launch
+        const dz = g - this.z;
+        this.vz = Math.abs(dz) < 3 ? Math.min(MAX_LAUNCH, dz / dt) : 0;
+        this.z = g;
+        return;
+      }
+      this.airborne = true;
+      this.airTime = 0;
+      this.z = ballistic;
+      this.vz -= GRAVITY * dt;
+      return;
+    }
+    this.vz -= GRAVITY * dt;
+    this.z += this.vz * dt;
+    if (this.z <= g) this.land(g);
+  }
+
+  private land(ground: number): void {
+    const impact = -this.vz;
+    const air = this.airTime;
+    this.z = ground;
+    this.vz = 0;
+    this.airborne = false;
+    this.airTime = 0;
+    if (!this.alive) return;
+    const w = this.world;
+    if (impact > 90) {
+      this.jolt(impact * 0.5);
+      w.effects.landingDust(this.x, this.y, impact);
+      w.view(this)?.effects.shake(Math.min(0.012, impact / 30000), 140);
+      w.audio.wallHit(this, impact * 0.6);
+    }
+    // hang time is rewarded with boost
+    if (air > 0.8) {
+      this.boostMeter = Math.min(100, this.boostMeter + 10);
+      w.view(this)?.hud?.flash(air > 1.3 ? 'HUGE AIR!' : 'BIG AIR!', '#ffd23f', 900);
+    }
+  }
+
+  /** True while falling onto `other` fast enough to crush it (checked by the collision system). */
+  stomping(other: Car): boolean {
+    return this.airborne && this.vz < -STOMP_SPEED && this.z - other.z > 2 && this.z - other.z < 18;
   }
 
   /** Ends a drift; a clean one converts the charge into a boost. */
@@ -423,12 +508,20 @@ export class Car {
     // suspension: pitch from acceleration, roll from cornering, bounce from impacts
     const acc = (vF - this.prevVF) / Math.max(dt, 1e-3);
     this.prevVF = vF;
-    this.pitch = damp(this.pitch, clamp(-acc * 0.00005, -0.06, 0.06), 8, dt);
+    // on a ramp or in the air the nose follows the flight path (up off the lip, down into the landing)
+    const climb = this.z > 0.5 || this.airborne ? Math.atan2(this.vz, Math.max(Math.abs(vF), 150)) * 0.8 : 0;
+    this.pitch = damp(this.pitch, clamp(-acc * 0.00005, -0.06, 0.06) + climb, this.airborne ? 5 : 8, dt);
     this.roll = damp(this.roll, clamp(this.angVel * vF * 0.00012 + vR * 0.0004, -0.14, 0.14), 6, dt);
     this.bounceV += (-this.bounce * 180 - this.bounceV * 10) * dt;
     this.bounce += this.bounceV * dt;
 
-    m.root.position.set(x, 0, y);
+    m.root.position.set(x, this.z, y);
+    // the soft shadow and the drift glow stay on the ground beneath the car
+    const lift = this.z - this.world.track.groundHeight(x, y);
+    m.shadow.position.y = 0.7 - lift;
+    m.shadow.scale.setScalar(1 / (1 + lift * 0.012));
+    (m.shadow.material as THREE.MeshBasicMaterial).opacity = 0.35 / (1 + lift * 0.02);
+    m.underglow.position.y = 0.9 - lift;
     m.root.rotation.y = -(this.heading + this.bodyYaw);
     m.body.rotation.set(this.roll, 0, this.pitch);
     m.body.position.y = this.bounce;

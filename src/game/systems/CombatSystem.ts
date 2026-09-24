@@ -7,7 +7,7 @@ import { SHIELD_FACTOR } from '../abilities/Shield';
 import { angleDiff, clamp, dist2, segmentCircleHit } from '../utils/math';
 import type { World } from './World';
 
-export type DamageKind = 'bullet' | 'shell' | 'explosion' | 'ram' | 'wall';
+export type DamageKind = 'bullet' | 'shell' | 'explosion' | 'ram' | 'wall' | 'stomp';
 
 const MAX_PROJECTILES = 220;
 const MAX_MINES = 24;
@@ -193,7 +193,8 @@ export class CombatSystem {
       }
       if (m.armed) {
         for (const c of w.cars) {
-          if (c === m.owner || !c.alive || c.ghostTime > 0) continue;
+          // a car in the air flies over it
+          if (c === m.owner || !c.alive || c.ghostTime > 0 || c.z > 6) continue;
           if (dist2(c.x, c.y, m.x, m.y) < (MINE_TRIGGER_RADIUS + c.radius) ** 2) {
             this.detonateMine(m, m.owner);
             break;

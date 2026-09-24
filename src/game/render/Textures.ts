@@ -246,6 +246,26 @@ function build() {
     },
     true,
   );
+  // diagonal yellow/black warning stripes (ramp lips)
+  const hazard = canvasTex(
+    128,
+    128,
+    (ctx) => {
+      ctx.fillStyle = '#16161a';
+      ctx.fillRect(0, 0, 128, 128);
+      ctx.fillStyle = '#f2b705';
+      for (let k = -2; k < 4; k++) {
+        ctx.beginPath();
+        ctx.moveTo(k * 64, 128);
+        ctx.lineTo(k * 64 + 32, 128);
+        ctx.lineTo(k * 64 + 160, 0);
+        ctx.lineTo(k * 64 + 128, 0);
+        ctx.closePath();
+        ctx.fill();
+      }
+    },
+    true,
+  );
   const chevron = canvasTex(128, 64, (ctx) => {
     ctx.fillStyle = '#111';
     ctx.fillRect(0, 0, 128, 64);
@@ -356,7 +376,7 @@ function build() {
     sponsor('#f2f2f2', '#1c2a4a', 'NORDHAUS', 'INDUSTRIAL STEEL'),
     sponsor('#1c6b3a', '#ffffff', 'RAPTOR', 'ENERGY DRINK'),
   ];
-  return { soft, smoke, ring, ground, asphalt, concrete, gravel, facades, checker, chevron, banner, fence, grass, crowd, billboards };
+  return { soft, smoke, ring, ground, asphalt, concrete, gravel, facades, checker, chevron, hazard, banner, fence, grass, crowd, billboards };
 }
 
 export function textures(): ReturnType<typeof build> {

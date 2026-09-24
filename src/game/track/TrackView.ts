@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { PathSample, Track } from './Track';
 import { textures } from '../render/Textures';
 import { foliageMaterial, prop, surfaceMaterial } from '../render/Assets';
-import { applyBake } from '../render/groundBake';
+import { applyBake, useBake } from '../render/groundBake';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const WALL_H = 22;
@@ -37,6 +37,7 @@ export class TrackView {
   constructor(track: Track, root: THREE.Object3D) {
     this.track = track;
     root.add(this.group);
+    useBake(track.def.id);
     this.buildGround();
     this.buildRoad();
     this.buildWalls();
@@ -53,6 +54,7 @@ export class TrackView {
     this.buildGroundPatches();
     this.buildBushes();
     this.buildPylons();
+    this.buildRamps();
     this.applyBakedLighting();
   }
 
@@ -423,6 +425,65 @@ export class TrackView {
     gantry.position.set(st.x, 0, st.y);
     gantry.rotation.y = -st.angle;
     this.group.add(gantry);
+  }
+
+  /**
+   * Kicker ramps: a concrete surface curving up to the lip (same profile as Track.groundHeight),
+   * warning-striped sides and lip face.
+   */
+  private buildRamps(): void {
+    const top = surfaceMaterial('concrete', { color: 0xc8c2b6 }) ?? new THREE.MeshStandardMaterial({ map: textures().concrete, color: 0xc8c2b6, roughness: 0.9 });
+    const tex = textures().hazard.clone();
+    tex.needsUpdate = true;
+    const stripes = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6 });
+    const N = 12;
+    for (const r of this.track.ramps) {
+      const P = (u: number, v: number, h: number) => [r.x + r.cos * u - r.sin * v, h, r.y + r.sin * u + r.cos * v];
+      const hAt = (i: number) => r.height * (i / N) ** 2;
+      const uAt = (i: number) => -r.length + (r.length * i) / N;
+      const w = r.width / 2;
+      const surf: number[] = [];
+      const surfUv: number[] = [];
+      const side: number[] = [];
+      const sideUv: number[] = [];
+      const quad = (arr: number[], uv: number[], a: number[], b: number[], c: number[], d: number[], ua: number[]) => {
+        arr.push(...a, ...b, ...c, ...a, ...c, ...d);
+        uv.push(ua[0], ua[1], ua[2], ua[3], ua[4], ua[5], ua[0], ua[1], ua[4], ua[5], ua[6], ua[7]);
+      };
+      for (let i = 0; i < N; i++) {
+        const u0 = uAt(i);
+        const u1 = uAt(i + 1);
+        const h0 = hAt(i);
+        const h1 = hAt(i + 1);
+        // driving surface (winding faces up); the last strip before the lip is striped so it reads from the car
+        const lip = i === N - 1;
+        quad(lip ? side : surf, lip ? sideUv : surfUv, P(u0, w, h0), P(u1, w, h1), P(u1, -w, h1), P(u0, -w, h0), lip ? [0, 0, 0.4, 0, 0.4, r.width / 40, 0, r.width / 40] : [u0 / 110, w / 110, u1 / 110, w / 110, u1 / 110, -w / 110, u0 / 110, -w / 110]);
+        // both side walls
+        for (const s of [1, -1]) {
+          const a = P(u0, s * w, 0);
+          const b = P(u1, s * w, 0);
+          const c = P(u1, s * w, h1);
+          const d = P(u0, s * w, h0);
+          const uvs = [u0 / 40, 0, u1 / 40, 0, u1 / 40, h1 / 40, u0 / 40, h0 / 40];
+          if (s > 0) quad(side, sideUv, a, b, c, d, uvs);
+          else quad(side, sideUv, b, a, d, c, [uvs[2], uvs[3], uvs[0], uvs[1], uvs[6], uvs[7], uvs[4], uvs[5]]);
+        }
+      }
+      // the lip face the car flies off (seen from behind when chasing)
+      quad(side, sideUv, P(0, w, 0), P(0, -w, 0), P(0, -w, r.height), P(0, w, r.height), [0, 0, r.width / 40, 0, r.width / 40, r.height / 40, 0, r.height / 40]);
+      for (const [pos, uv, mat] of [
+        [surf, surfUv, top],
+        [side, sideUv, stripes],
+      ] as [number[], number[], THREE.Material][]) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+        g.computeVertexNormals();
+        const mesh = new THREE.Mesh(g, mat);
+        mesh.castShadow = mesh.receiveShadow = true;
+        this.group.add(mesh);
+      }
+    }
   }
 
   /** Chevron boards on the outside wall of sharp corners. */

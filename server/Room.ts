@@ -2,6 +2,8 @@ import { LAP_OPTIONS } from '../src/game/constants';
 import { CAR_IDS } from '../src/game/data/cars';
 import { PRIMARY_WEAPONS, SECONDARY_WEAPONS } from '../src/game/data/weapons';
 import { MAX_PLAYERS, type ClientMsg, type LobbyPlayer, type ServerMsg } from '../src/game/net/protocol';
+import type { TrackId } from '../src/game/track/TrackData';
+import { isTrackId } from '../src/game/track/tracks';
 import { ServerRace } from './ServerRace';
 
 export interface Client {
@@ -14,6 +16,7 @@ export class Room {
   readonly code: string;
   private players: (LobbyPlayer & { client: Client })[] = [];
   private laps = 5;
+  private track: TrackId = 'industrial';
   private race: ServerRace | null = null;
   private onEmpty: () => void;
 
@@ -85,6 +88,11 @@ export class Room {
         this.laps = msg.laps;
         this.broadcastLobby();
         break;
+      case 'track':
+        if (!p.host || this.race || !isTrackId(msg.track)) return;
+        this.track = msg.track;
+        this.broadcastLobby();
+        break;
       case 'start':
         if (!p.host || this.race) return;
         if (this.players.some((q) => !q.host && !q.ready)) {
@@ -112,7 +120,7 @@ export class Room {
 
   private startRace(): void {
     const racers = this.players.map(({ client: _c, ...rest }) => rest);
-    const race = new ServerRace(racers, this.laps, {
+    const race = new ServerRace(racers, this.laps, this.track, {
       send: (id, msg) => this.players.find((q) => q.id === id)?.client.send(msg as ServerMsg),
       onOver: () => {
         this.race = null;
@@ -124,7 +132,7 @@ export class Room {
       },
     });
     this.race = race;
-    for (const q of this.players) q.client.send({ t: 'start', laps: this.laps, cars: race.setup });
+    for (const q of this.players) q.client.send({ t: 'start', laps: this.laps, track: this.track, cars: race.setup });
     race.start();
     this.broadcastLobby();
   }
@@ -134,6 +142,7 @@ export class Room {
       t: 'lobby',
       players: this.players.map(({ client: _c, ...rest }) => rest),
       laps: this.laps,
+      track: this.track,
       racing: this.race !== null,
     };
   }

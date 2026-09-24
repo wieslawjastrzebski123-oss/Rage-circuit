@@ -8,6 +8,8 @@ import { AudioManager } from '../systems/AudioManager';
 import { button, h, hex, layer } from '../ui/dom';
 import { Storage } from '../utils/storage';
 import { carPreview } from './CarPreview';
+import type { TrackId } from '../track/TrackData';
+import { TRACK_IDS, TRACKS } from '../track/tracks';
 
 /**
  * Default server: build-time setting; in local development the dev server on :8787;
@@ -28,6 +30,7 @@ export class OnlineScreen {
   private net: NetClient | null = null;
   private players: LobbyPlayer[] = [];
   private laps = DEFAULT_LAPS;
+  private track: TrackId = 'industrial';
   private racing = false;
   private error = '';
 
@@ -129,6 +132,7 @@ export class OnlineScreen {
       case 'lobby':
         this.players = msg.players;
         this.laps = msg.laps;
+        this.track = msg.track;
         this.racing = msg.racing;
         this.error = '';
         this.renderLobby();
@@ -193,6 +197,17 @@ export class OnlineScreen {
       };
       weapons('PRIMARY', PRIMARY_WEAPONS, 'primary');
       weapons('SECONDARY', SECONDARY_WEAPONS, 'secondary');
+      const trackRow = h('div', 'wrow', undefined, mine);
+      h('span', '', 'TRACK', trackRow);
+      for (const id of TRACK_IDS) {
+        const b = h('button', `lap-opt ${this.track === id ? 'selected' : ''}`, TRACKS[id].name, trackRow);
+        b.title = TRACKS[id].tagline;
+        b.disabled = !me.host;
+        b.addEventListener('click', () => {
+          this.click();
+          net.send({ t: 'track', track: id });
+        });
+      }
       const lapsRow = h('div', 'wrow', undefined, mine);
       h('span', '', 'LAPS', lapsRow);
       for (const n of LAP_OPTIONS) {

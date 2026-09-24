@@ -21,8 +21,29 @@ export interface PickupDef {
   y: number;
 }
 
+/**
+ * A kicker ramp. (x, y) is the middle of its lip; the car drives up it in direction `angle`.
+ * The surface rises over `length` to `height` (a curve that steepens towards the lip).
+ */
+export interface JumpDef {
+  x: number;
+  y: number;
+  angle: number;
+  width: number;
+  length: number;
+  height: number;
+}
+
+export type TrackId = 'industrial' | 'canyon';
+/** which scenery, lighting and textures surround the road */
+export type TrackTheme = 'industrial' | 'desert';
+
 export interface TrackDef {
+  id: TrackId;
   name: string;
+  /** one line for menus */
+  tagline: string;
+  theme: TrackTheme;
   worldWidth: number;
   worldHeight: number;
   main: ControlPoint[];
@@ -32,10 +53,15 @@ export interface TrackDef {
   checkpointCount: number;
   obstacles: ObstacleDef[];
   pickups: PickupDef[];
+  jumps: JumpDef[];
 }
 
 export const INDUSTRIAL_DISTRICT: TrackDef = {
+  id: 'industrial',
   name: 'INDUSTRIAL DISTRICT',
+  tagline: 'Tight corners, container yards and a risky shortcut.',
+  theme: 'industrial',
+  jumps: [],
   worldWidth: 7900,
   worldHeight: 5600,
   start: [2250, 4920],

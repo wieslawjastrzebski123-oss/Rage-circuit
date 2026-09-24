@@ -6,6 +6,7 @@ import { AICar } from '../src/game/entities/AICar';
 import type { Car } from '../src/game/entities/Car';
 import { RemoteCar } from '../src/game/entities/RemoteCar';
 import {
+  CF_AIR,
   CF_ALIVE,
   CF_BOOSTING,
   CF_DRIFT,
@@ -33,16 +34,14 @@ import { PickupSystem } from '../src/game/systems/PickupSystem';
 import { RaceManager } from '../src/game/systems/RaceManager';
 import { RespawnSystem } from '../src/game/systems/RespawnSystem';
 import type { Viewer, World } from '../src/game/systems/World';
-import { Track } from '../src/game/track/Track';
-import { INDUSTRIAL_DISTRICT } from '../src/game/track/TrackData';
+import type { TrackId } from '../src/game/track/TrackData';
+import { getTrack } from '../src/game/track/tracks';
 import { pick, shuffle } from '../src/game/utils/math';
 import { createWeapon } from '../src/game/weapons';
 
 /** input ticks the server holds back to absorb network jitter (4 × 16.7 ms ≈ 67 ms) */
 const INPUT_BUFFER = 4;
 
-let track: Track | null = null;
-const getTrack = () => (track ??= new Track(INDUSTRIAL_DISTRICT));
 
 const CH_EFFECTS = 0;
 const CH_AUDIO = 1;
@@ -98,10 +97,10 @@ export class ServerRace {
   private firstFinishAt = -1;
   private overSent = false;
 
-  constructor(players: LobbyPlayer[], laps: number, cb: RaceCallbacks) {
+  constructor(players: LobbyPlayer[], laps: number, trackId: TrackId, cb: RaceCallbacks) {
     this.cb = cb;
     this.laps = laps;
-    const t = getTrack();
+    const t = getTrack(trackId);
     const world: World = {
       gfx: null,
       track: t,
@@ -322,7 +321,8 @@ export class ServerRace {
       (r.finished ? CF_FINISHED : 0) |
       (c.unlockPrimary ? CF_UNLOCK1 : 0) |
       (c.unlockSecondary ? CF_UNLOCK2 : 0) |
-      (c.unlockAbility ? CF_UNLOCK3 : 0);
+      (c.unlockAbility ? CF_UNLOCK3 : 0) |
+      (c.airborne ? CF_AIR : 0);
     return [
       c.id,
       r1(c.x),
@@ -352,6 +352,8 @@ export class ServerRace {
       Math.round(r.finishTime * 1000) / 1000,
       r.cpPassed,
       c.driftBoostColor,
+      r1(c.z),
+      r1(c.vz),
     ];
   }
 
