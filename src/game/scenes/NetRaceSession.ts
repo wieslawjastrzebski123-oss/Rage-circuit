@@ -387,6 +387,8 @@ export class NetRaceSession implements RaceInfo {
     // delayed events line up with the interpolated picture
     while (this.events.length && this.events[0].at <= now) this.playEvent(this.events.shift()!.e);
 
+    this.cam.rear = !this.menu && !this.results && this.input.rearView;
+    this.hud.setRearView(this.cam.rear && this.me.alive);
     this.cam.update(dt, this.me, this.world.effects);
     this.gfx.follow(this.me.x, this.me.y);
     this.smokeTimer -= dt;

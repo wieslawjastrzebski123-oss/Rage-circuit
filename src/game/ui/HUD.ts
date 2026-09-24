@@ -58,6 +58,7 @@ export class HUD {
   private sub: HTMLElement;
   private countdownEl: HTMLElement;
   private wrongWay: HTMLElement;
+  private rearView: HTMLElement;
   private respawn: HTMLElement;
   private hint: HTMLElement;
   private feedEl: HTMLElement;
@@ -118,6 +119,7 @@ export class HUD {
     this.sub = h('div', 'hud-sub', '', this.root);
     this.countdownEl = h('div', 'hud-countdown', '', this.root);
     this.wrongWay = h('div', 'hud-wrong', 'WRONG WAY', this.root);
+    this.rearView = h('div', 'hud-rear', '◀ REAR VIEW ▶', this.root);
     this.respawn = h('div', 'hud-respawn', '', this.root);
     this.hint = h('div', 'hud-hint', '', this.root);
     this.feedEl = h('div', 'hud-feed', '', this.root);
@@ -222,6 +224,10 @@ export class HUD {
 
   setWrongWay(on: boolean): void {
     this.wrongWay.classList.toggle('show', on);
+  }
+
+  setRearView(on: boolean): void {
+    this.rearView.classList.toggle('show', on);
   }
 
   setRespawn(t: number | null): void {

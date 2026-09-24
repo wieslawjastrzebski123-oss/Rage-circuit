@@ -1218,6 +1218,25 @@ code {
   display: block;
 }
 
+.hud-rear {
+  position: absolute;
+  top: 14px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  color: var(--pink);
+  text-shadow: 0 0 10px rgba(255, 45, 111, 0.6);
+  display: none;
+}
+
+.hud-rear.show {
+  display: block;
+}
+
 .hud-respawn {
   position: absolute;
   top: 48%;
@@ -1826,6 +1845,15 @@ body.touch.in-race .touch-ctl {
   --s: 0.9;
   right: calc(var(--pad) + var(--b) * 2.25 + 36px);
   bottom: calc(14px + var(--b) * 0.85 + 26px);
+}
+
+/* above DRIFT: hold to look back and fire at the rival behind */
+.tbtn.rear {
+  --s: 0.8;
+  right: calc(var(--pad) + var(--b) * 0.25);
+  bottom: calc(14px + var(--b) * 2.45 + 44px);
+  font-size: 11px;
+  border-color: rgba(255, 45, 111, 0.6);
 }
 
 .tbtn.pause,

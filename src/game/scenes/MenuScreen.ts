@@ -79,6 +79,7 @@ export class MenuScreen {
       ['FIRE', 'Primary weapon (Machine Gun / Cannon) – aims at the rival ahead automatically'],
       ['ALT', 'Secondary weapon (Rocket / Mine)'],
       ['SKILL', 'Car ability (Overcharge / Shield / Blink / EMP)'],
+      ['REAR', 'Hold to look back – the turret targets the rival behind you and fires automatically'],
       ['↺', 'Reset to last checkpoint (2 s penalty)'],
       ['II', 'Pause'],
     ] : [
@@ -89,6 +90,7 @@ export class MenuScreen {
       ['MOUSE', 'Aim the turret. Cursor high = shoot ahead, at the sides = shoot sideways, near the bottom = shoot behind you'],
       ['LMB', 'Primary weapon (Machine Gun / Cannon)'],
       ['RMB / Q', 'Secondary weapon (Rocket / Mine)'],
+      ['C (hold)', 'Rear view – look back, aim with the mouse and shoot the cars behind you'],
       ['SHIFT', 'Car ability (Overcharge / Shield / Blink / EMP)'],
       ['R', 'Reset to last checkpoint (2 s penalty)'],
       ['ESC', 'Pause'],

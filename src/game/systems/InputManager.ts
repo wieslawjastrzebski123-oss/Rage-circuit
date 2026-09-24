@@ -9,7 +9,7 @@ const CAPTURED = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRi
 /**
  * Keyboard + mouse → car controls.
  * WASD / arrows drive, SPACE drifts, E boosts, mouse aims,
- * LMB primary, RMB (or Q) secondary, SHIFT ability, R reset.
+ * LMB primary, RMB (or Q) secondary, SHIFT ability, R reset, hold C to look (and shoot) backwards.
  * On touch devices on-screen controls are added; aiming is automatic there.
  */
 export class InputManager {
@@ -58,6 +58,11 @@ export class InputManager {
     return codes.some((c) => this.keys.has(c));
   }
 
+  /** Held: the camera looks backwards, so the mouse (or touch auto-aim) targets the road behind the car. */
+  get rearView(): boolean {
+    return this.down('KeyC') || !!this.touch?.down('rear');
+  }
+
   /**
    * Mouse → aim point on the ground around the car. Recomputed every frame because the camera moves.
    * The lower part of the screen is the road behind the car, so you can shoot backwards too.
@@ -104,9 +109,13 @@ export class InputManager {
     out.reset ||= t.down('reset');
     out.firePrimary ||= t.down('fire');
     out.fireSecondary ||= t.down('alt');
-    const target = this.findTarget?.(heading);
-    out.aimX = target ? target.x : carX + Math.cos(heading) * 600;
-    out.aimY = target ? target.y : carY + Math.sin(heading) * 600;
+    // REAR: both thumbs are busy, so looking back also fires at a rival locked behind
+    const back = t.down('rear');
+    const dir = back ? heading + Math.PI : heading;
+    const target = this.findTarget?.(dir);
+    out.aimX = target ? target.x : carX + Math.cos(dir) * 600;
+    out.aimY = target ? target.y : carY + Math.sin(dir) * 600;
+    if (back && target) out.firePrimary = true;
   }
 
   destroy(): void {

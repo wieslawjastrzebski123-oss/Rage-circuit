@@ -9,6 +9,7 @@ import type { Track } from '../track/Track';
  * – follows behind the car, blending heading with travel direction (so drifts look right)
  * – pulls back and widens FOV with speed / boost for a sense of speed
  * – orbits the wreck while respawning
+ * – rear view: cuts to a camera ahead of the car looking back (held by the player to shoot behind)
  */
 export class ChaseCamera {
   private gfx: Gfx;
@@ -23,6 +24,9 @@ export class ChaseCamera {
   private y = 0;
   private orbit = 0;
   cinematic = false;
+  /** look backwards (set every frame by the race session) */
+  rear = false;
+  private wasRear = false;
   private t = 0;
 
   constructor(gfx: Gfx, track: Track) {
@@ -63,6 +67,14 @@ export class ChaseCamera {
       target = car.heading + this.orbit;
     } else this.orbit = 0;
     if (this.cinematic) target += Math.sin(this.t * 0.25) * 0.7;
+    const rear = this.rear && car.alive && !this.cinematic;
+    if (rear) target += Math.PI;
+    if (rear !== this.wasRear) {
+      // a cut, like a racing game's look-back button – swinging 180° round the car would be disorienting
+      this.wasRear = rear;
+      this.yaw = wrapAngle(target);
+      this.clearance = 1;
+    }
     this.yaw = wrapAngle(this.yaw + angleDiff(this.yaw, target) * (1 - Math.exp(-(car.alive ? 4.5 : 1.5) * dt)));
 
     const boost = clamp(car.boostPower, 0, 1.4);

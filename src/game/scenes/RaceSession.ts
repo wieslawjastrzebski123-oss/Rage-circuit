@@ -197,6 +197,8 @@ export class RaceSession {
 
     for (const c of this.world.cars) c.updateVisuals(frameDt);
     this.updateDemoFocus(frameDt);
+    this.cam.rear = !this.isDemo && !this.finished && this.focus === this.world.player && !!this.input?.rearView;
+    this.hud?.setRearView(this.cam.rear && this.focus.alive);
     this.cam.update(frameDt, this.focus, fx);
     this.world.gfx!.follow(this.focus.x, this.focus.y);
     this.smokeTimer -= frameDt;

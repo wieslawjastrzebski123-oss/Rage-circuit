@@ -1,7 +1,7 @@
 import { Storage } from '../utils/storage';
 import { h, layer } from './dom';
 
-type Key = 'fire' | 'alt' | 'ability' | 'drift' | 'boost' | 'brake' | 'reset' | 'pause';
+type Key = 'fire' | 'alt' | 'ability' | 'drift' | 'boost' | 'brake' | 'rear' | 'reset' | 'pause';
 
 /** thumb travel (px) for full steering lock – short, so turns come quickly */
 const STICK_RADIUS = 46;
@@ -14,7 +14,7 @@ const BOOST_PUSH = 38;
 /**
  * On-screen controls for phones/tablets (landscape).
  * Left thumb: a floating steering stick anywhere on the left half.
- * Right thumb: FIRE / ALT / ABILITY / DRIFT / BOOST / BRAKE – the thumb can slide between buttons.
+ * Right thumb: FIRE / ALT / ABILITY / DRIFT / BOOST / BRAKE / REAR – the thumb can slide between buttons.
  * The car accelerates by itself; BRAKE slows down and reverses.
  */
 export class TouchControls {
@@ -54,6 +54,7 @@ export class TouchControls {
     btn('drift', 'DRIFT');
     btn('boost', 'BOOST');
     btn('brake', 'BRAKE');
+    btn('rear', 'REAR');
     btn('reset', '↺');
     btn('pause', 'II');
 
