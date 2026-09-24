@@ -5,12 +5,13 @@ import type { TrackId } from '../track/TrackData';
 /** Shared between the browser client and the Node server. */
 // 2: track choice, car height (jumps)
 // 3: new weapons (projectile kinds, missile targets, oil slicks), oil and slipstream per car
-export const PROTOCOL_VERSION = 3;
+// 4: host can turn bots off
+export const PROTOCOL_VERSION = 4;
 export const TICK_RATE = 60; // server simulation ticks per second
 export const SUBSTEPS = 2; // physics sub-steps per tick (dt = 1/120 like solo)
 export const SNAPSHOT_EVERY = 2; // ticks per snapshot → 30 Hz
 export const MAX_PLAYERS = 5;
-export const GRID_SIZE = 6; // humans + bots
+export const GRID_SIZE = 6; // humans + bots (when the host leaves bots on)
 export const DEFAULT_PORT = 8787;
 
 export interface LobbyPlayer {
@@ -49,6 +50,7 @@ export type ClientMsg =
   | { t: 'ready'; ready: boolean }
   | { t: 'laps'; laps: number }
   | { t: 'track'; track: TrackId }
+  | { t: 'bots'; bots: boolean }
   | { t: 'start' }
   | { t: 'in'; s: number; i: InputTuple }
   | { t: 'lobby' }
@@ -70,7 +72,7 @@ export interface NetResults {
 
 export type ServerMsg =
   | { t: 'welcome'; you: number; code: string }
-  | { t: 'lobby'; players: LobbyPlayer[]; laps: number; track: TrackId; racing: boolean }
+  | { t: 'lobby'; players: LobbyPlayer[]; laps: number; track: TrackId; bots: boolean; racing: boolean }
   | { t: 'error'; msg: string }
   | { t: 'start'; laps: number; track: TrackId; cars: CarSetup[] }
   | Snapshot

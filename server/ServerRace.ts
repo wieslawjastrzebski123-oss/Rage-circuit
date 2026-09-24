@@ -97,7 +97,7 @@ export class ServerRace {
   private firstFinishAt = -1;
   private overSent = false;
 
-  constructor(players: LobbyPlayer[], laps: number, trackId: TrackId, cb: RaceCallbacks) {
+  constructor(players: LobbyPlayer[], laps: number, trackId: TrackId, bots: boolean, cb: RaceCallbacks) {
     this.cb = cb;
     this.laps = laps;
     const t = getTrack(trackId);
@@ -123,7 +123,7 @@ export class ServerRace {
     this.race = new RaceManager(world, laps);
     this.respawn = new RespawnSystem(world, this.race);
 
-    // humans in lobby order, bots fill the grid
+    // humans in lobby order, bots fill the grid (unless the host turned them off)
     const names = new Set<string>();
     const unique = (n: string) => {
       let name = n;
@@ -149,7 +149,7 @@ export class ServerRace {
     }
     const personalities = [PERSONALITIES.aggressive, PERSONALITIES.balanced, PERSONALITIES.racer];
     const botCars = shuffle(CAR_IDS.slice());
-    for (let i = 0; world.cars.length < GRID_SIZE; i++) {
+    for (let i = 0; bots && world.cars.length < GRID_SIZE; i++) {
       const id = botCars[i % botCars.length];
       const bot = new AICar(world, CARS[id], personalities[i % 3], unique(CARS[id].name));
       bot.primary = createWeapon(pick(PRIMARY_WEAPONS));

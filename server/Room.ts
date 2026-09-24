@@ -17,6 +17,8 @@ export class Room {
   private players: (LobbyPlayer & { client: Client })[] = [];
   private laps = 5;
   private track: TrackId = 'industrial';
+  /** fill empty grid slots with bots */
+  private bots = true;
   private race: ServerRace | null = null;
   private onEmpty: () => void;
 
@@ -93,6 +95,11 @@ export class Room {
         this.track = msg.track;
         this.broadcastLobby();
         break;
+      case 'bots':
+        if (!p.host || this.race) return;
+        this.bots = !!msg.bots;
+        this.broadcastLobby();
+        break;
       case 'start':
         if (!p.host || this.race) return;
         if (this.players.some((q) => !q.host && !q.ready)) {
@@ -120,7 +127,7 @@ export class Room {
 
   private startRace(): void {
     const racers = this.players.map(({ client: _c, ...rest }) => rest);
-    const race = new ServerRace(racers, this.laps, this.track, {
+    const race = new ServerRace(racers, this.laps, this.track, this.bots, {
       send: (id, msg) => this.players.find((q) => q.id === id)?.client.send(msg as ServerMsg),
       onOver: () => {
         this.race = null;
@@ -143,6 +150,7 @@ export class Room {
       players: this.players.map(({ client: _c, ...rest }) => rest),
       laps: this.laps,
       track: this.track,
+      bots: this.bots,
       racing: this.race !== null,
     };
   }

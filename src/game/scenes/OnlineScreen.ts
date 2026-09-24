@@ -31,6 +31,7 @@ export class OnlineScreen {
   private players: LobbyPlayer[] = [];
   private laps = DEFAULT_LAPS;
   private track: TrackId = 'industrial';
+  private bots = true;
   private racing = false;
   private error = '';
 
@@ -58,7 +59,7 @@ export class OnlineScreen {
     const root = this.reset();
     const panel = h('div', 'panel', undefined, root);
     h('h2', '', 'MULTIPLAYER', panel);
-    h('p', 'small', `Up to ${MAX_PLAYERS} players per race – empty grid slots (${GRID_SIZE} cars) are filled with bots.`, panel);
+    h('p', 'small', `Up to ${MAX_PLAYERS} players per race – empty grid slots (${GRID_SIZE} cars) are filled with bots, unless the host turns them off.`, panel);
     const prefs = Storage.getOnline(defaultServerUrl());
     const field = (label: string, value: string, placeholder: string, max = 64) => {
       const row = h('label', 'field', undefined, panel);
@@ -133,6 +134,7 @@ export class OnlineScreen {
         this.players = msg.players;
         this.laps = msg.laps;
         this.track = msg.track;
+        this.bots = msg.bots;
         this.racing = msg.racing;
         this.error = '';
         this.renderLobby();
@@ -169,7 +171,8 @@ export class OnlineScreen {
         list,
       );
     }
-    for (let i = this.players.length; i < GRID_SIZE; i++) h('div', 'lp bot', `<span class="dot"></span><b>BOT</b><span>fills an empty slot</span>`, list);
+    if (this.bots) for (let i = this.players.length; i < GRID_SIZE; i++) h('div', 'lp bot', `<span class="dot"></span><b>BOT</b><span>fills an empty slot</span>`, list);
+    else h('div', 'small', 'Bots are off – only the drivers above will race.', list);
     h('div', 'small', `Ping ${Math.round(net.rtt)} ms`, list);
 
     // own setup
@@ -233,6 +236,17 @@ export class OnlineScreen {
         b.addEventListener('click', () => {
           this.click();
           net.send({ t: 'laps', laps: n });
+        });
+      }
+      const botsRow = h('div', 'wrow', undefined, mine);
+      h('span', '', 'BOTS', botsRow);
+      for (const on of [true, false]) {
+        const b = h('button', `lap-opt ${this.bots === on ? 'selected' : ''}`, on ? 'ON' : 'OFF', botsRow);
+        b.title = on ? `Bots fill the empty slots up to ${GRID_SIZE} cars.` : 'Only human drivers race.';
+        b.disabled = !me.host;
+        b.addEventListener('click', () => {
+          this.click();
+          net.send({ t: 'bots', bots: on });
         });
       }
     }
