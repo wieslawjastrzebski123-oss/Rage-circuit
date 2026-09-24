@@ -1,5 +1,6 @@
 import './style.css';
 import { App } from './game/App';
+import { loadAssets } from './game/render/Assets';
 import { DEBUG } from './game/constants';
 import { enterMobileFullscreen, IS_TOUCH } from './game/ui/device';
 
@@ -16,9 +17,9 @@ if (IS_TOUCH) {
   });
 }
 
-// Give the web fonts a moment so canvas-drawn labels use them.
+// Give the web fonts a moment so canvas-drawn labels use them; Blender-made textures load meanwhile.
 const fontsReady = document.fonts?.ready ?? Promise.resolve();
-Promise.race([fontsReady, new Promise((r) => setTimeout(r, 1500))]).then(() => {
+Promise.all([Promise.race([fontsReady, new Promise((r) => setTimeout(r, 1500))]), loadAssets()]).then(() => {
   const app = new App(document.getElementById('game')!);
   if (DEBUG) (window as unknown as { __app: App }).__app = app;
 });

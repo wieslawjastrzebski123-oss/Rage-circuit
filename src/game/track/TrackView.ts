@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { PathSample, Track } from './Track';
 import { textures } from '../render/Textures';
+import { surfaceMaterial } from '../render/Assets';
+import { applyBake } from '../render/groundBake';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const WALL_H = 22;
@@ -51,6 +53,29 @@ export class TrackView {
     this.buildGroundPatches();
     this.buildBushes();
     this.buildPylons();
+    this.applyBakedLighting();
+  }
+
+  /** Blender-baked occlusion and shadows: full effect on the ground, a soft contact darkening on everything standing on it. */
+  private applyBakedLighting(): void {
+    const box = new THREE.Box3();
+    this.group.updateMatrixWorld(true);
+    this.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const inst = mesh as THREE.InstancedMesh;
+      if (inst.isInstancedMesh) {
+        // spans every instance, in the mesh's own space
+        inst.computeBoundingBox();
+        box.copy(inst.boundingBox!).applyMatrix4(mesh.matrixWorld);
+      } else {
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        box.copy(mesh.geometry.boundingBox!).applyMatrix4(mesh.matrixWorld);
+      }
+      const flat = box.max.y < 3;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) applyBake(m, flat ? 'ground' : 'upright');
+    });
   }
 
   // ------------------------------------------------------------ helpers
@@ -156,12 +181,14 @@ export class TrackView {
   private buildGround(): void {
     const t = this.track;
     const m = 5000;
+    const repeat: [number, number] = [(t.width + m * 2) / 600, (t.height + m * 2) / 600];
     const tex = textures().ground.clone();
     tex.needsUpdate = true;
-    tex.repeat.set((t.width + m * 2) / 600, (t.height + m * 2) / 600);
+    tex.repeat.set(...repeat);
     const g = new THREE.PlaneGeometry(t.width + m * 2, t.height + m * 2);
     g.rotateX(-Math.PI / 2);
-    const ground = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0 }));
+    const mat = surfaceMaterial('yard', {}, repeat) ?? new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0 });
+    const ground = new THREE.Mesh(g, mat);
     ground.position.set(t.width / 2, -0.5, t.height / 2);
     ground.receiveShadow = true;
     this.group.add(ground);
@@ -169,15 +196,12 @@ export class TrackView {
 
   private buildRoad(): void {
     const t = this.track;
-    const asphalt = new THREE.MeshStandardMaterial({ map: textures().asphalt, roughness: 0.92, metalness: 0 });
-    const asphalt2 = new THREE.MeshStandardMaterial({
-      map: textures().asphalt,
-      color: 0xd8d0c4,
-      roughness: 0.95,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-      polygonOffsetUnits: -1,
-    });
+    const asphalt = surfaceMaterial('asphalt') ?? new THREE.MeshStandardMaterial({ map: textures().asphalt, roughness: 0.92, metalness: 0 });
+    // the shortcut is an older, dustier surface
+    const offset = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 };
+    const asphalt2 =
+      surfaceMaterial('asphalt', { color: 0xd8d0c4, ...offset }) ??
+      new THREE.MeshStandardMaterial({ map: textures().asphalt, color: 0xd8d0c4, roughness: 0.95, ...offset });
     this.ribbon(t.main, true, (p) => -p.hw - 4, (p) => p.hw + 4, asphalt, { y0: 0.1, uvScale: 320 }).receiveShadow = true;
     this.ribbon(t.shortcut, false, (p) => -p.hw - 3, (p) => p.hw + 3, asphalt2, { y0: 0.12, uvScale: 320 }).receiveShadow = true;
 
@@ -247,8 +271,10 @@ export class TrackView {
     const t = this.track;
     const tex = textures().concrete;
     // walls are single strips, visible from both sides
-    const concrete = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, side: THREE.DoubleSide });
-    const concreteTop = new THREE.MeshStandardMaterial({ map: tex, color: 0xd8d6d0, roughness: 0.95, side: THREE.DoubleSide });
+    const concrete = surfaceMaterial('concrete', { side: THREE.DoubleSide }) ?? new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, side: THREE.DoubleSide });
+    const concreteTop =
+      surfaceMaterial('concrete', { color: 0xd8d6d0, side: THREE.DoubleSide }) ??
+      new THREE.MeshStandardMaterial({ map: tex, color: 0xd8d6d0, roughness: 0.95, side: THREE.DoubleSide });
     const stripes = new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.7,
@@ -469,7 +495,7 @@ export class TrackView {
 
     // merged geometry per facade variant, UVs in world units so windows keep their size
     const TILE = 90;
-    const roofMat = new THREE.MeshStandardMaterial({ map: textures().gravel, roughness: 1 });
+    const roofMat = surfaceMaterial('asphalt', { color: 0xa8a49c }) ?? new THREE.MeshStandardMaterial({ map: textures().gravel, roughness: 1 });
     const roofPos: number[] = [];
     const roofUv: number[] = [];
     const roofNor: number[] = [];
@@ -685,8 +711,9 @@ export class TrackView {
   private buildVerges(): void {
     const t = this.track;
     const tex = textures().grass;
-    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-    const gravel = new THREE.MeshStandardMaterial({ map: textures().gravel, color: 0xb0a590, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const offset = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 };
+    const mat = surfaceMaterial('grass', offset) ?? new THREE.MeshStandardMaterial({ map: tex, roughness: 1, ...offset });
+    const gravel = surfaceMaterial('gravel', offset) ?? new THREE.MeshStandardMaterial({ map: textures().gravel, color: 0xb0a590, roughness: 1, ...offset });
     const curv = this.curvature();
     for (const side of [1, -1]) {
       const skip = (i: number) => {
@@ -713,7 +740,7 @@ export class TrackView {
     const cx = st.x - Math.sin(st.angle) * lat;
     const cy = st.y + Math.cos(st.angle) * lat;
     const g = new THREE.Group();
-    const concrete = new THREE.MeshStandardMaterial({ map: textures().concrete, roughness: 0.9 });
+    const concrete = surfaceMaterial('concrete') ?? new THREE.MeshStandardMaterial({ map: textures().concrete, roughness: 0.9 });
     const crowdTex = textures().crowd.clone();
     crowdTex.needsUpdate = true;
     crowdTex.repeat.set(len / 180, 1);
@@ -910,7 +937,8 @@ export class TrackView {
       pos.setXY(i, pos.getX(i) * k, pos.getY(i) * k);
     }
     geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshStandardMaterial({ map: textures().grass, color: 0xffffff, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const offset = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 };
+    const mat = surfaceMaterial('grass', offset) ?? new THREE.MeshStandardMaterial({ map: textures().grass, color: 0xffffff, roughness: 1, ...offset });
     const n = 260;
     const mesh = new THREE.InstancedMesh(geo, mat, n);
     const m4 = new THREE.Matrix4();

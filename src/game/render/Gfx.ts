@@ -6,6 +6,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Storage } from '../utils/storage';
+import { setLiveShadow } from './groundBake';
 
 export const FOG_COLOR = 0xa4b4c6;
 
@@ -184,6 +185,8 @@ export class Gfx {
   applySettings(): void {
     const high = Storage.getSettings().quality === 'high';
     this.post = high;
+    // beyond the live shadow map (and everywhere on low quality) the ground uses shadows baked in Blender
+    setLiveShadow(high, this.sun.target.position.x, this.sun.target.position.z);
     this.renderer.setPixelRatio(high ? Math.min(window.devicePixelRatio, 1.5) : 1);
     if (this.renderer.shadowMap.enabled !== high) {
       this.renderer.shadowMap.enabled = high;
@@ -213,6 +216,7 @@ export class Gfx {
     const sx = Math.round(x / 8) * 8;
     const sy = Math.round(y / 8) * 8;
     this.sun.target.position.set(sx, 0, sy);
+    setLiveShadow(this.renderer.shadowMap.enabled, sx, sy);
     this.sun.position.set(sx + this.sunDir.x * 1800, this.sunDir.y * 1800, sy + this.sunDir.z * 1800);
   }
 

@@ -8,7 +8,9 @@
     "build": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
-    "server": "tsx server/index.ts"
+    "server": "tsx server/index.ts",
+    "art:textures": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b --factory-startup -P art/blender/textures.py --",
+    "art:ground": "tsx art/export-track-layout.ts && \"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b --factory-startup -P art/blender/ground_bake.py"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",
