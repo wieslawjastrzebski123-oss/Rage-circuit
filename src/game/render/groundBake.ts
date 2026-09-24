@@ -42,7 +42,11 @@ export function applyBake(mat: THREE.Material, mode: 'ground' | 'upright'): void
   if (!hasBake() || mat.userData.bake || !(mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) return;
   mat.userData.bake = mode;
   const { x0, z0, width, height } = BAKE_AREA;
-  mat.onBeforeCompile = (sh) => {
+  // keep any shader tweak the material already has (e.g. foliage normals)
+  const prev = mat.onBeforeCompile.bind(mat);
+  const prevKey = mat.customProgramCacheKey.bind(mat);
+  mat.onBeforeCompile = (sh, renderer) => {
+    prev(sh, renderer);
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vBakeWorld;')
@@ -87,6 +91,6 @@ uniform vec2 uSunCentre;`,
   reflectedLight.directSpecular *= bakeSun;`,
       );
   };
-  mat.customProgramCacheKey = () => `bake-${mode}`;
+  mat.customProgramCacheKey = () => `${prevKey()}|bake-${mode}`;
   mat.needsUpdate = true;
 }

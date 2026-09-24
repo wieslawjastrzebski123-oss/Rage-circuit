@@ -127,7 +127,7 @@ def yard(S=1024):
     cell = S / n
     sx = np.abs(((xx + (wob - 0.5) * 1.5) % cell) - cell / 2)
     sy = np.abs(((yy + (wob - 0.5) * 1.5) % cell) - cell / 2)
-    seam = smooth(1.4, 0.4, np.minimum(cell / 2 - sx, cell / 2 - sy))
+    seam = smooth(1.0, 0.2, np.minimum(cell / 2 - sx, cell / 2 - sy))
     rng = np.random.default_rng(7)
     tone = rng.uniform(-1, 1, (n, n))
     slab_tone = tone[(yy // cell).astype(int) % n, (xx // cell).astype(int) % n]
@@ -144,9 +144,9 @@ def yard(S=1024):
     col = mix(col, col * 0.5, drip * 0.6)
     cr = smooth(0.008, 0.003, cracks) * smooth(0.6, 0.66, crack_mask)
     col = mix(col, col * 0.55, cr * 0.8)
-    col = mix(col, col * 0.7, seam)
+    col = mix(col, col * 0.8, seam)
 
-    h = grit * 0.3 + mottle * 0.2 - seam * 0.6 - cr * 0.4
+    h = grit * 0.3 + mottle * 0.2 - seam * 0.5 - cr * 0.4
     rough = 0.92 - 0.3 * stn - 0.2 * drip + 0.04 * grit
     write('yard', col, h, rough, strength=3.0, ao_sigma=2.5, ao_k=3.0)
 

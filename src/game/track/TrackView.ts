@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PathSample, Track } from './Track';
 import { textures } from '../render/Textures';
-import { surfaceMaterial } from '../render/Assets';
+import { foliageMaterial, prop, surfaceMaterial } from '../render/Assets';
 import { applyBake } from '../render/groundBake';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
@@ -285,6 +285,7 @@ export class TrackView {
     });
     const curvature = this.curvature();
     const fenceMat = new THREE.MeshStandardMaterial({ map: textures().fence, alphaTest: 0.5, side: THREE.DoubleSide, metalness: 0.6, roughness: 0.5 });
+    fenceMat.userData.bakeIgnore = true;
     const tyreSpots: { x: number; y: number }[] = [];
     const postSpots: { x: number; y: number }[] = [];
     const paths: { s: PathSample[]; closed: boolean; path: 0 | 1 }[] = [
@@ -363,9 +364,12 @@ export class TrackView {
 
   /** Stacks of old tyres (three high) with painted bands. */
   private buildTyres(spots: { x: number; y: number }[]): void {
-    const geo = new THREE.CylinderGeometry(6.5, 6.5, 7, 12);
-    geo.translate(0, 3.5, 0);
-    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }), spots.length * 3);
+    let geo = prop('tyre')?.get('rubber');
+    if (!geo) {
+      geo = new THREE.CylinderGeometry(6.5, 6.5, 7, 12);
+      geo.translate(0, 3.5, 0);
+    }
+    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, vertexColors: geo.hasAttribute('color') }), spots.length * 3);
     const m4 = new THREE.Matrix4();
     const c = new THREE.Color();
     let k = 0;
@@ -616,35 +620,67 @@ export class TrackView {
       cont.push({ x, y, w, h, stack: 1 + Math.floor(rnd() * 3), col: containerCols[Math.floor(rnd() * containerCols.length)] });
     }
     const total = cont.reduce((n, c) => n + c.stack, 0);
-    const cmesh = new THREE.InstancedMesh(box, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, metalness: 0.35 }), total);
+    const containerParts = this.containerParts();
+    const cmeshes = containerParts.map(([g, mat]) => new THREE.InstancedMesh(g, mat, total));
+    const quat = new THREE.Quaternion();
+    const yUp = new THREE.Vector3(0, 1, 0);
+    const pos = new THREE.Vector3();
+    const one = new THREE.Vector3(1, 1, 1);
     let k = 0;
     for (const c of cont) {
+      // the model lies along x; containers placed "vertically" on the map are turned a quarter
+      quat.setFromAxisAngle(yUp, c.w > c.h ? 0 : Math.PI / 2);
       for (let s = 0; s < c.stack; s++) {
-        m4.makeScale(c.w, 26, c.h).setPosition(c.x + c.w / 2, s * 27, c.y + c.h / 2);
-        cmesh.setMatrixAt(k, m4);
+        m4.compose(pos.set(c.x + c.w / 2, s * 27, c.y + c.h / 2), quat, one);
         col.setHex(c.col).multiplyScalar(0.75 + ((s * 37 + k) % 5) * 0.06);
-        cmesh.setColorAt(k, col);
+        for (const cm of cmeshes) {
+          cm.setMatrixAt(k, m4);
+          cm.setColorAt(k, col);
+        }
         k++;
       }
     }
-    cmesh.castShadow = true;
-    cmesh.receiveShadow = true;
-    this.group.add(cmesh);
+    for (const cm of cmeshes) {
+      cm.castShadow = true;
+      cm.receiveShadow = true;
+      this.group.add(cm);
+    }
     this.buildYardClutter(cont);
 
     // on-track obstacle containers
     for (const o of t.def.obstacles) {
       if (o.kind !== 'container') continue;
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(o.w ?? 100, 34, o.h ?? 40), new THREE.MeshStandardMaterial({ color: 0xc0501f, roughness: 0.55, metalness: 0.35 }));
-      mesh.position.set(o.x, 17, o.y);
-      mesh.rotation.y = -(o.angle ?? 0);
-      mesh.castShadow = mesh.receiveShadow = true;
-      this.group.add(mesh);
+      // the Blender container is 110 × 26 × 40; stretch it to the obstacle's footprint
+      for (const [g, mat] of this.containerParts(0xc0501f)) {
+        const mesh = new THREE.Mesh(g, mat);
+        mesh.scale.set((o.w ?? 100) / 110, 34 / 26, (o.h ?? 40) / 40);
+        mesh.rotation.y = -(o.angle ?? 0);
+        mesh.position.set(o.x, 0, o.y);
+        mesh.castShadow = mesh.receiveShadow = true;
+        this.group.add(mesh);
+      }
       const stripe = new THREE.Mesh(new THREE.BoxGeometry((o.w ?? 100) + 1, 4, (o.h ?? 40) + 1), new THREE.MeshStandardMaterial({ color: 0xe0a800, roughness: 0.6 }));
       stripe.position.set(o.x, 28, o.y);
-      stripe.rotation.y = mesh.rotation.y;
+      stripe.rotation.y = -(o.angle ?? 0);
       this.group.add(stripe);
     }
+  }
+
+  /** Container model parts (corrugated body + frame), or a plain box when the Blender model is missing. */
+  private containerParts(color = 0xffffff): [THREE.BufferGeometry, THREE.Material][] {
+    const parts = prop('container');
+    const body = parts?.get('body');
+    const frame = parts?.get('frame');
+    if (body && frame) {
+      const bodyMat = surfaceMaterial('corrugated', { color, vertexColors: true }) ?? new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.35, vertexColors: true });
+      return [
+        [body, bodyMat],
+        [frame, new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.3, vertexColors: true })],
+      ];
+    }
+    const box = new THREE.BoxGeometry(110, 26, 40);
+    box.translate(0, 13, 0);
+    return [[box, new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.35 })]];
   }
 
   /** Oil drums, pallets and crates scattered at the foot of container stacks. */
@@ -673,16 +709,15 @@ export class TrackView {
         props.push({ x, y, kind: Math.floor(rnd() * 3) as 0 | 1 | 2, a: rnd() * 6 });
       }
     }
-    const drumGeo = new THREE.CylinderGeometry(4, 4, 11, 10);
-    drumGeo.translate(0, 5.5, 0);
-    const palletGeo = new THREE.BoxGeometry(14, 2.5, 12);
-    palletGeo.translate(0, 1.25, 0);
-    const crateGeo = new THREE.BoxGeometry(10, 10, 10);
-    crateGeo.translate(0, 5, 0);
+    const shape = (name: string, part: string, fallback: () => THREE.BufferGeometry) => prop(name)?.get(part) ?? fallback();
+    const drumGeo = shape('drum', 'paint', () => new THREE.CylinderGeometry(4, 4, 11, 10).translate(0, 5.5, 0));
+    const palletGeo = shape('pallet', 'wood', () => new THREE.BoxGeometry(14, 2.5, 12).translate(0, 1.25, 0));
+    const crateGeo = shape('crate', 'wood', () => new THREE.BoxGeometry(10, 10, 10).translate(0, 5, 0));
+    const vc = (g: THREE.BufferGeometry) => g.hasAttribute('color');
     const kinds = [
-      { geo: drumGeo, mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.6 }), cols: [0x2d5f96, 0xa8472a, 0x3c7340, 0x8a8e94] },
-      { geo: palletGeo, mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }), cols: [0x9a7a52, 0x86683f] },
-      { geo: crateGeo, mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }), cols: [0xa7864f, 0x8f7040, 0xb59460] },
+      { geo: drumGeo, mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, metalness: 0.6, vertexColors: vc(drumGeo) }), cols: [0x2d5f96, 0xa8472a, 0x3c7340, 0x8a8e94] },
+      { geo: palletGeo, mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, vertexColors: vc(palletGeo) }), cols: [0x9a7a52, 0x86683f] },
+      { geo: crateGeo, mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, vertexColors: vc(crateGeo) }), cols: [0xa7864f, 0x8f7040, 0xb59460] },
     ];
     kinds.forEach((k, ki) => {
       const list = props.filter((p) => p.kind === ki);
@@ -881,47 +916,84 @@ export class TrackView {
       spots.push({ x, y, s: 0.8 + rnd() * 0.7 });
       this.taken.push({ x: x - 12, y: y - 12, w: 24, h: 24 });
     }
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const v = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    const up = new THREE.Vector3(0, 1, 0);
+    // every third tree is a conifer; random draws stay in the same order so the layout (and its baked lighting) holds
+    const isFir = (i: number) => i % 3 === 1;
+    const all = spots.map((p) => {
+      q.setFromAxisAngle(up, rnd() * 6);
+      return m4.compose(v.set(p.x, 0, p.y), q, sc.set(p.s, p.s * (0.9 + rnd() * 0.3), p.s)).clone();
+    });
+    const firs = spots.filter((_, i) => isFir(i));
+    const firMats = firs.map((p) => {
+      q.setFromAxisAngle(up, rnd() * 6);
+      return m4.compose(v.set(p.x, 0, p.y), q, sc.set(p.s, p.s * (1 + rnd() * 0.3), p.s)).clone();
+    });
+
+    const tree = prop('tree');
+    const fir = prop('fir');
+    const leaves = foliageMaterial();
+    if (tree && fir && leaves) {
+      const bark = new THREE.MeshStandardMaterial({ color: 0x6a5240, roughness: 1, vertexColors: true });
+      const tint = (hexes: number[], n: number) => Array.from({ length: n }, (_, i) => new THREE.Color(hexes[i % hexes.length]));
+      const broad = all.filter((_, i) => !isFir(i));
+      this.addInstanced(tree, { bark, leaves }, broad, { part: 'leaves', colors: tint([0xffffff, 0xeef4dc, 0xf6eecc, 0xdde8cc], broad.length) });
+      this.addInstanced(fir, { bark, needles: leaves }, firMats, { part: 'needles', colors: tint([0xffffff, 0xe4ecd8, 0xd4dccc], firMats.length) });
+      return;
+    }
+
+    // fallback: primitive trees
     const trunkGeo = new THREE.CylinderGeometry(2.5, 3.5, 30, 6);
     trunkGeo.translate(0, 15, 0);
     const leafGeo = new THREE.IcosahedronGeometry(22, 1);
     leafGeo.translate(0, 44, 0);
     const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshStandardMaterial({ color: 0x5a4330, roughness: 1 }), spots.length);
-    const leaves = new THREE.InstancedMesh(leafGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true }), spots.length);
-    const m4 = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const v = new THREE.Vector3();
-    const sc = new THREE.Vector3();
+    const crowns = new THREE.InstancedMesh(leafGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true }), spots.length);
     const c = new THREE.Color();
     const greens = [0x4d6b34, 0x5b7a3a, 0x3f5a2c, 0x6b7f3c];
-    spots.forEach((p, i) => {
-      q.setFromAxisAngle(v.set(0, 1, 0), rnd() * 6);
-      m4.compose(v.set(p.x, 0, p.y), q, sc.set(p.s, p.s * (0.9 + rnd() * 0.3), p.s));
-      trunks.setMatrixAt(i, m4);
-      leaves.setMatrixAt(i, m4);
-      leaves.setColorAt(i, c.setHex(greens[i % greens.length]));
+    all.forEach((m, i) => {
+      trunks.setMatrixAt(i, m);
+      // conifers get cones instead of a round crown
+      crowns.setMatrixAt(i, isFir(i) ? new THREE.Matrix4().makeScale(0, 0, 0) : m);
+      crowns.setColorAt(i, c.setHex(greens[i % greens.length]));
     });
-    trunks.castShadow = leaves.castShadow = true;
-    this.group.add(trunks, leaves);
-
-    // every third tree becomes a conifer: two stacked cones over the same trunk
-    const firs = spots.filter((_, i) => i % 3 === 1);
+    trunks.castShadow = crowns.castShadow = true;
+    this.group.add(trunks, crowns);
     const coneA = new THREE.ConeGeometry(20, 42, 7);
     coneA.translate(0, 46, 0);
     const coneB = new THREE.ConeGeometry(14, 32, 7);
     coneB.translate(0, 66, 0);
-    const firGeo = mergeGeometries([coneA, coneB]);
-    const firs3 = new THREE.InstancedMesh(firGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true }), firs.length);
+    const firs3 = new THREE.InstancedMesh(mergeGeometries([coneA, coneB]), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, flatShading: true }), firs.length);
     const firGreens = [0x2f4a2a, 0x36532e, 0x2a4226];
-    firs.forEach((p, i) => {
-      q.setFromAxisAngle(v.set(0, 1, 0), rnd() * 6);
-      m4.compose(v.set(p.x, 0, p.y), q, sc.set(p.s, p.s * (1 + rnd() * 0.3), p.s));
-      firs3.setMatrixAt(i, m4);
+    firMats.forEach((m, i) => {
+      firs3.setMatrixAt(i, m);
       firs3.setColorAt(i, c.setHex(firGreens[i % firGreens.length]));
-      // hide the round crown this conifer replaces
-      leaves.setMatrixAt(spots.indexOf(p), new THREE.Matrix4().makeScale(0, 0, 0));
     });
     firs3.castShadow = true;
     this.group.add(firs3);
+  }
+
+  /** One instanced mesh per part of a Blender prop, all sharing the same transforms. */
+  private addInstanced(
+    parts: Map<string, THREE.BufferGeometry>,
+    mats: Record<string, THREE.Material>,
+    matrices: THREE.Matrix4[],
+    tint?: { part: string; colors: THREE.Color[] },
+    castShadow = true,
+  ): void {
+    for (const [name, geo] of parts) {
+      const mat = mats[name];
+      if (!mat || !matrices.length) continue;
+      const mesh = new THREE.InstancedMesh(geo, mat, matrices.length);
+      matrices.forEach((m, i) => mesh.setMatrixAt(i, m));
+      if (tint?.part === name) tint.colors.forEach((c, i) => mesh.setColorAt(i, c));
+      mesh.castShadow = castShadow;
+      mesh.receiveShadow = true;
+      this.group.add(mesh);
+    }
   }
 
   /** Irregular patches of grass, dirt and gravel breaking up the flat concrete yard. */
@@ -977,15 +1049,29 @@ export class TrackView {
       if (!this.clear(x - 8, y - 8, 16, 16, 45) || this.overlaps(x - 8, y - 8, 16, 16, 4)) continue;
       spots.push({ x, y, s: 0.6 + rnd() * 0.8 });
     }
-    const geo = new THREE.IcosahedronGeometry(9, 0);
-    geo.scale(1.8, 1.05, 1.5);
-    geo.translate(0, 4, 0);
-    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true }), spots.length);
     const m4 = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const v = new THREE.Vector3();
     const sc = new THREE.Vector3();
     const c = new THREE.Color();
+    const bush = prop('bush');
+    const leaves = foliageMaterial();
+    if (bush && leaves) {
+      const tints = [0xffffff, 0xe6f0d8, 0xf4ecc8, 0xd8e4c8];
+      const matrices: THREE.Matrix4[] = [];
+      const colors: THREE.Color[] = [];
+      for (const p of spots) {
+        q.setFromAxisAngle(v.set(0, 1, 0), rnd() * 6);
+        matrices.push(m4.compose(v.set(p.x, 0, p.y), q, sc.set(p.s, p.s * (0.8 + rnd() * 0.5), p.s)).clone());
+        colors.push(new THREE.Color(tints[Math.floor(rnd() * tints.length)]));
+      }
+      this.addInstanced(bush, { leaves }, matrices, { part: 'leaves', colors }, false);
+      return;
+    }
+    const geo = new THREE.IcosahedronGeometry(9, 0);
+    geo.scale(1.8, 1.05, 1.5);
+    geo.translate(0, 4, 0);
+    const mesh = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true }), spots.length);
     const cols = [0x55733a, 0x4a6633, 0x677f3f, 0x7a8546];
     spots.forEach((p, i) => {
       q.setFromAxisAngle(v.set(0, 1, 0), rnd() * 6);
@@ -1069,6 +1155,7 @@ export class TrackView {
     const t = this.track;
     const rnd = this.rnd;
     const mat = new THREE.MeshStandardMaterial({ color: 0x6f7a62, roughness: 1, flatShading: true });
+    mat.userData.bakeIgnore = true;
     const cx = t.width / 2;
     const cy = t.height / 2;
     for (let i = 0; i < 22; i++) {
@@ -1093,6 +1180,23 @@ export class TrackView {
       if (t.isDrivable(pos.x, pos.y)) continue;
       // arm points back over the road
       spots.push({ x: pos.x, y: pos.y, a: Math.atan2(p.y - pos.y, p.x - pos.x) });
+    }
+    const lamp = prop('lamp');
+    if (lamp) {
+      const q = new THREE.Quaternion();
+      const up = new THREE.Vector3(0, 1, 0);
+      const one = new THREE.Vector3(1, 1, 1);
+      // the model's arm reaches along +x; turn it over the road
+      const matrices = spots.map((s) => new THREE.Matrix4().compose(new THREE.Vector3(s.x, 0, s.y), q.setFromAxisAngle(up, -s.a), one));
+      this.addInstanced(
+        lamp,
+        {
+          metal: new THREE.MeshStandardMaterial({ color: 0x6d7076, roughness: 0.5, metalness: 0.7, vertexColors: true }),
+          glow: new THREE.MeshStandardMaterial({ color: 0xfff6e0, emissive: 0xfff0d0, emissiveIntensity: 0.5, roughness: 0.3 }),
+        },
+        matrices,
+      );
+      return;
     }
     const metal = new THREE.MeshStandardMaterial({ color: 0x6d7076, roughness: 0.5, metalness: 0.7 });
     const pole = new THREE.CylinderGeometry(1.6, 2.4, 100, 8);

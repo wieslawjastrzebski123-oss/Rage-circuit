@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { setBakeTexture } from './groundBake';
 
 /**
@@ -17,6 +18,9 @@ export type SurfaceName = 'asphalt' | 'concrete' | 'yard' | 'grass' | 'gravel' |
 const SURFACES: SurfaceName[] = ['asphalt', 'concrete', 'yard', 'grass', 'gravel', 'corrugated'];
 
 const surfaces = new Map<SurfaceName, SurfaceSet>();
+/** prop name → material name → geometry */
+const props = new Map<string, Map<string, THREE.BufferGeometry>>();
+let foliage: THREE.Texture | null = null;
 
 const url = (path: string) => `${import.meta.env.BASE_URL}assets/${path}`;
 
@@ -46,8 +50,19 @@ export async function loadAssets(): Promise<void> {
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     setBakeTexture(t);
   });
+  const models = new GLTFLoader()
+    .loadAsync(url('models/props.glb'))
+    .then((gltf) => useProps(gltf.scene))
+    .catch(() => console.warn('asset missing: models/props.glb'));
+  const leaves = loadTexture(loader, 'tex/foliage.webp', true).then((t) => {
+    if (!t) return;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    useFoliage(t);
+  });
   await Promise.all([
     bake,
+    models,
+    leaves,
     ...SURFACES.map(async (name) => {
       const [map, normalMap, orm] = await Promise.all([
         loadTexture(loader, `tex/${name}_color.webp`, true),
@@ -91,4 +106,41 @@ export function surfaceMaterial(
     roughnessMap: orm,
     metalnessMap: orm,
   });
+}
+
+/** Registers the objects of props.glb (also used by the art export script, which reads the file itself). */
+export function useProps(scene: THREE.Object3D): void {
+  for (const node of scene.children) {
+    const parts = new Map<string, THREE.BufferGeometry>();
+    node.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry.userData.shared = true;
+      parts.set((mesh.material as THREE.Material).name, mesh.geometry);
+    });
+    props.set(node.name, parts);
+  }
+}
+
+export function useFoliage(t: THREE.Texture): void {
+  foliage = t;
+}
+
+/** Parts of a Blender-made prop keyed by material name (e.g. tree → bark, leaves), or null if it didn't load. */
+export function prop(name: string): Map<string, THREE.BufferGeometry> | null {
+  return props.get(name) ?? null;
+}
+
+/**
+ * Alpha-tested leaf / needle cards. Both faces keep the same outward-pointing normal (baked in Blender)
+ * so a crown shades like one soft volume instead of a pile of flat cards.
+ */
+export function foliageMaterial(): THREE.MeshStandardMaterial | null {
+  if (!foliage) return null;
+  const m = new THREE.MeshStandardMaterial({ map: foliage, alphaTest: 0.45, side: THREE.DoubleSide, vertexColors: true, roughness: 0.85 });
+  m.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n  normal = normalize( vNormal );');
+  };
+  m.customProgramCacheKey = () => 'foliage';
+  return m;
 }

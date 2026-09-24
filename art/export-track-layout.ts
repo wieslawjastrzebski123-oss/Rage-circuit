@@ -6,7 +6,7 @@
  *
  * Run with: npm run art:ground (this script is its first step)
  */
-import { mkdirSync, writeFileSync, createWriteStream } from 'node:fs';
+import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,8 +26,18 @@ const { INDUSTRIAL_DISTRICT } = await import('../src/game/track/TrackData');
 const { TrackView } = await import('../src/game/track/TrackView');
 const { BAKE_AREA } = await import('../src/game/render/groundBake');
 
-const out = join(dirname(fileURLToPath(import.meta.url)), '.cache');
+const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+const { useProps, useFoliage } = await import('../src/game/render/Assets');
+
+const here = dirname(fileURLToPath(import.meta.url));
+const out = join(here, '.cache');
 mkdirSync(out, { recursive: true });
+
+// the Blender props shade the ground too: load them the way the game does (leaf texture not needed here)
+const glb = readFileSync(join(here, '..', 'public', 'assets', 'models', 'props.glb'));
+const gltf = await new GLTFLoader().parseAsync(glb.buffer.slice(glb.byteOffset, glb.byteOffset + glb.byteLength), '');
+useProps(gltf.scene);
+useFoliage(new THREE.Texture());
 
 const track = new Track(INDUSTRIAL_DISTRICT);
 const root = new THREE.Group();
@@ -48,8 +58,6 @@ function emit(geo: THREE.BufferGeometry, matrix: THREE.Matrix4): void {
   if (!geo.boundingBox) geo.computeBoundingBox();
   box.copy(geo.boundingBox!).applyMatrix4(matrix);
   if (box.max.y - box.min.y < 3) return;
-  // distant horizon hills: their shadows would end abruptly at the edge of the baked area
-  if (box.max.x - box.min.x > 1500) return;
   if (box.max.x < x0 || box.min.x > x0 + width || box.max.z < z0 || box.min.z > z0 + height) return;
   const pos = geo.attributes.position;
   const lines: string[] = [];
@@ -74,8 +82,9 @@ root.traverse((o) => {
   const mesh = o as THREE.Mesh;
   if (!mesh.isMesh) return;
   const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-  // see-through fences and transparent decals don't block light noticeably
-  if (mats.every((mm) => mm.alphaTest > 0 || mm.transparent)) return;
+  // see-through fences, transparent decals and the horizon hills (whose shadows would end abruptly
+  // at the edge of the baked area) are left out; leaf cards do count
+  if (mats.every((mm) => mm.userData.bakeIgnore || mm.transparent)) return;
   if ((mesh as THREE.InstancedMesh).isInstancedMesh) {
     const inst = mesh as THREE.InstancedMesh;
     for (let i = 0; i < inst.count; i++) {
