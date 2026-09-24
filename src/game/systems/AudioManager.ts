@@ -26,6 +26,7 @@ export class AudioManager {
   private voices = 0;
   private listenerX = 0;
   private listenerY = 0;
+  private lastConfirm = 0;
 
   // engine
   private engOsc1: OscillatorNode | null = null;
@@ -152,6 +153,34 @@ export class AudioManager {
     } else {
       this.tone('square', 1400, 900, 0.03, 0.06 * v);
     }
+  }
+
+  /** Your shot landed – a crisp tick (a deeper one for the killing blow). Rate-limited for the machine gun. */
+  hitConfirm(kill = false): void {
+    const now = this.ctx?.currentTime ?? 0;
+    if (!kill && now - this.lastConfirm < 0.07) return;
+    this.lastConfirm = now;
+    if (kill) {
+      this.tone('square', 1500, 1500, 0.05, 0.14);
+      this.tone('square', 900, 900, 0.1, 0.12, 0.05);
+    } else {
+      this.tone('triangle', 2400, 1900, 0.035, 0.16);
+      this.burst('highpass', 6000, 4000, 0.03, 0.1);
+    }
+  }
+
+  /** Kill streak fanfare, higher for longer streaks. */
+  streak(n: number): void {
+    const base = 523 * 2 ** (Math.min(n, 5) / 12);
+    [1, 1.26, 1.5, 2].forEach((m, i) => this.tone('square', base * m, base * m, i === 3 ? 0.28 : 0.09, 0.11, i * 0.08));
+    this.burst('bandpass', 800, 4000, 0.4, 0.12, 1.2, 0.2);
+  }
+
+  /** Drift charge reached a new level – rising chime per level. */
+  driftLevel(level: number): void {
+    const f = 660 * 2 ** ((level - 1) * 4 / 12);
+    this.tone('triangle', f, f * 1.02, 0.12, 0.2);
+    this.tone('sine', f * 2, f * 2, 0.16, 0.1, 0.05);
   }
 
   wallHit(src: Positioned, strength: number): void {

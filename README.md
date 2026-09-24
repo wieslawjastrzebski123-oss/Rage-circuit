@@ -11,7 +11,9 @@ No accounts, no database – records and settings live in your browser's `localS
 
 - **Third-person 3D chase camera** (Three.js) – follows your car, looks into drifts, widens with speed and boost, never clips behind walls.
 - **Arcade driving model** – momentum, slight slide at speed, speed loss on hard hits.
-- **Drift → boost** – hold SPACE in a corner, charge 4 levels (blue → yellow → orange → pink), release for a boost. Hitting a wall loses the charge.
+- **Drift → boost** – hold SPACE in a corner, charge 4 levels (blue → yellow → orange → pink), release for a boost. Each new level flashes the drift meter (BOOST / SUPER / ULTRA / MAX) with a rising chime. Hitting a wall loses the charge.
+- **Hit feedback** – every hit you land shows a ✕ marker on the victim (red for the killing blow) with a crisp confirm tick.
+- **Kill streaks** – 2+ kills without dying: DOUBLE KILL, TRIPLE KILL, RAMPAGE, UNSTOPPABLE – each fills the Boost tank and adds Energy.
 - **Boost meter** (E) – filled by drifting, kills and pickups.
 - **Energy** powers weapons and abilities and regenerates faster the faster you drive – camping doesn't pay.
 - **4 cars**, each with a real strength and weakness and its own ability:
@@ -24,13 +26,13 @@ No accounts, no database – records and settings live in your browser's `localS
 - **4 weapons** – Machine Gun / Cannon (primary), homing Rocket / proximity Mine (secondary).
 - **Weapons unlock during the race** – primary 7 s after GO, secondary on lap 2, car ability on lap 3 (after 25 s / 50 s in 1–2 lap races; same rules for bots).
 - **Balanced cars** – tuned with batches of bot-only races using identical AI and weapons so every car wins races.
-- **3 AI bots** with personalities (aggressive / balanced / racer): racing line, braking, drifting, overtaking, obstacle avoidance, shortcut use, imperfect aim, ability use.
+- **3 AI bots** with personalities (aggressive / balanced / racer) and a skill level for solo races (EASY / NORMAL / HARD): racing line, braking, drifting, overtaking, obstacle avoidance, shortcut use, imperfect aim, ability use.
 - **Race systems** – ordered checkpoints (no cutting), selectable race length (1 / 3 / 5 / 7 / 10 laps, records kept per length), live positions, WRONG WAY detection, respawn at last checkpoint with ghost mode, R-reset with 2 s penalty, very gentle rubber banding, kill rewards.
 - **Risk/reward shortcut**, explosive barrels, pushable barrels, pickups (energy / boost / repair).
 - **Game feel** – camera shake, hit-stop, hit flash, damage numbers, sparks, smoke, skid marks, explosions with light flashes, boost flames.
 - **Realistic daytime look** – physically based sky, sun with real-time shadows, clear-coated car paint, concrete barriers with painted corners, tyre walls, catch fences, grandstand, sponsor boards, trees, smoking chimneys, cranes and hills on the horizon.
 - **Synthesised audio** (WebAudio) – engine with gear changes, weapons, explosions, tyre screech. No audio files.
-- **Menus** – title, how-to-play, settings (master / SFX volume, camera shake, graphics quality), car select, loadout, results, pause.
+- **Menus** – title, how-to-play, settings (master / SFX volume, camera shake, graphics quality, touch steering sensitivity), car select, loadout, results, pause.
 - **Local records** – best race time, best lap, wins.
 - **Debug mode** – add `?debug=true` to the URL: FPS, AI routes & targets, checkpoints, collision shapes, per-car stats.
 

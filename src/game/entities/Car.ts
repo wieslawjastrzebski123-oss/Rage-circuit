@@ -53,6 +53,8 @@ export interface CombatStats {
   deaths: number;
   damageDealt: number;
   damageTaken: number;
+  /** kills since this car last died */
+  streak: number;
 }
 
 let nextId = 1;
@@ -142,7 +144,7 @@ export class Car {
     usingShortcut: false,
   };
 
-  readonly combat: CombatStats = { kills: 0, deaths: 0, damageDealt: 0, damageTaken: 0 };
+  readonly combat: CombatStats = { kills: 0, deaths: 0, damageDealt: 0, damageTaken: 0, streak: 0 };
   lastHitBy: Car | null = null;
   lastHitTime = -99;
 

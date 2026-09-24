@@ -17,6 +17,9 @@ const ROCKET_MAX_SPEED = 860;
 const KILL_BOOST_REWARD = 45;
 const KILL_ENERGY_REWARD = 20;
 const ASSIST_WINDOW = 4; // seconds a hit counts for kill credit
+/** kills in a row without dying: name shown on screen (index = streak) */
+const STREAK_NAMES = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'RAMPAGE', 'UNSTOPPABLE'];
+const STREAK_ENERGY_REWARD = 15;
 
 /** Projectiles, mines, damage, explosions and kill rewards. */
 export class CombatSystem {
@@ -295,7 +298,8 @@ export class CombatSystem {
     amount = Math.min(amount, target.hp);
     target.hp -= amount;
     target.combat.damageTaken += amount;
-    target.hitFlash = 0.07;
+    target.hitFlash = 0.12;
+    const killed = target.hp <= 0.01;
     if (source && source !== target) {
       source.combat.damageDealt += amount;
       target.lastHitBy = source;
@@ -303,10 +307,16 @@ export class CombatSystem {
     }
     if (kind !== 'wall' && amount >= 1) {
       w.view(target)?.effects.damageNumber(target.x, target.y, amount, true);
-      if (source && source !== target) w.view(source)?.effects.damageNumber(target.x, target.y, amount, false);
+      if (source && source !== target) {
+        const sv = w.view(source);
+        sv?.effects.damageNumber(target.x, target.y, amount, false);
+        // hit confirmation for the shooter: a marker on the victim and a crisp tick
+        sv?.effects.hitMarker(target, killed);
+        sv?.audio.hitConfirm(killed);
+      }
     }
     if (amount >= 3) w.view(target)?.hud?.damageFlash(Math.min(1, amount / 30));
-    if (target.hp <= 0.01) this.kill(target, source);
+    if (killed) this.kill(target, source);
     return amount;
   }
 
@@ -317,6 +327,7 @@ export class CombatSystem {
     target.setAlive(false);
     target.respawnTimer = RESPAWN_DELAY;
     target.combat.deaths++;
+    target.combat.streak = 0;
     target.overchargeTime = target.shieldTime = target.empTime = 0;
     target.angVel = (Math.random() - 0.5) * 8;
 
@@ -333,14 +344,26 @@ export class CombatSystem {
 
     if (killer) {
       killer.combat.kills++;
+      const streak = ++killer.combat.streak;
       killer.boostMeter = Math.min(100, killer.boostMeter + KILL_BOOST_REWARD);
       killer.energy = Math.min(killer.maxEnergy, killer.energy + KILL_ENERGY_REWARD);
-      kv?.hud?.announce(`DESTROYED ${target.name}`, '#ffd23f');
-      kv?.audio.kill();
+      if (streak >= 2) {
+        // kill streak: full boost tank and extra energy
+        const name = STREAK_NAMES[Math.min(streak, STREAK_NAMES.length - 1)];
+        killer.boostMeter = 100;
+        killer.energy = Math.min(killer.maxEnergy, killer.energy + STREAK_ENERGY_REWARD * (streak - 1));
+        kv?.hud?.announce(name, '#ff8a00', 2000);
+        kv?.hud?.flash(`DESTROYED ${target.name} · BOOST FULL`, '#ffd23f', 1800);
+        kv?.audio.streak(streak);
+      } else {
+        kv?.hud?.announce(`DESTROYED ${target.name}`, '#ffd23f');
+        kv?.audio.kill();
+      }
     }
     tv?.hud?.announce(killer ? `WRECKED BY ${killer.name}` : 'WRECKED', '#ff5a5a');
     // everyone sees the kill feed; each HUD shows its own name as YOU
     w.hud?.feed(killer ? `${killer.name} ✖ ${target.name}` : `${target.name} crashed`);
+    if (killer && killer.combat.streak >= 2) w.hud?.feed(`${killer.name} · ${STREAK_NAMES[Math.min(killer.combat.streak, STREAK_NAMES.length - 1)]}`);
   }
 
   // ------------------------------------------------------------------ network

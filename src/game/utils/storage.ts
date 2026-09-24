@@ -9,13 +9,19 @@ export interface Settings {
   cameraShake: number; // 0..1
   /** high = sun shadows + sharper image, low = faster on weak GPUs */
   quality: 'high' | 'low';
+  /** touch steering stick sensitivity, 0.5..1.5 (1 = default) */
+  steerSensitivity: number;
 }
+
+export type Difficulty = 'easy' | 'normal' | 'hard';
 
 export interface Loadout {
   car: CarId;
   primary: WeaponId;
   secondary: WeaponId;
   laps: number;
+  /** bot skill in solo races */
+  difficulty: Difficulty;
 }
 
 export interface Records {
@@ -37,8 +43,8 @@ export interface OnlinePrefs {
   server: string;
 }
 
-const DEFAULT_SETTINGS: Settings = { masterVolume: 0.7, sfxVolume: 0.8, cameraShake: 0.8, quality: IS_TOUCH ? 'low' : 'high' }; // phones start on the lighter setting
-const DEFAULT_LOADOUT: Loadout = { car: 'viper', primary: 'machinegun', secondary: 'rocket', laps: 5 };
+const DEFAULT_SETTINGS: Settings = { masterVolume: 0.7, sfxVolume: 0.8, cameraShake: 0.8, quality: IS_TOUCH ? 'low' : 'high', steerSensitivity: 1 }; // phones start on the lighter setting
+const DEFAULT_LOADOUT: Loadout = { car: 'viper', primary: 'machinegun', secondary: 'rocket', laps: 5, difficulty: 'normal' };
 const DEFAULT_RECORDS: Records = {
   bestRace: {},
   bestLapTime: null,

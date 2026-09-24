@@ -3,7 +3,7 @@ import { ABILITIES, CAR_IDS, CARS } from '../data/cars';
 import { PRIMARY_WEAPONS, SECONDARY_WEAPONS, WEAPONS, type WeaponId } from '../data/weapons';
 import { AudioManager } from '../systems/AudioManager';
 import { button, h, hex, layer } from '../ui/dom';
-import { Storage, type Loadout } from '../utils/storage';
+import { Storage, type Difficulty, type Loadout } from '../utils/storage';
 import { DEFAULT_LAPS, LAP_OPTIONS } from '../constants';
 import type { App } from '../App';
 import { carPreview } from './CarPreview';
@@ -131,6 +131,27 @@ export class GarageScreen {
         b.classList.add('selected');
       });
       lapBtns.push(b);
+    }
+
+    // bot skill
+    const diffRow = h('div', 'laps-select', undefined, root);
+    h('h3', '', 'BOTS', diffRow);
+    const diffBtns: HTMLElement[] = [];
+    const levels: [Difficulty, string][] = [
+      ['easy', 'EASY'],
+      ['normal', 'NORMAL'],
+      ['hard', 'HARD'],
+    ];
+    if (!levels.some(([d]) => d === this.loadout.difficulty)) this.loadout.difficulty = 'normal';
+    for (const [d, label] of levels) {
+      const b = h('button', `lap-opt diff ${this.loadout.difficulty === d ? 'selected' : ''}`, label, diffRow);
+      b.addEventListener('click', () => {
+        this.click();
+        this.loadout.difficulty = d;
+        diffBtns.forEach((x) => x.classList.remove('selected'));
+        b.classList.add('selected');
+      });
+      diffBtns.push(b);
     }
 
     const nav = h('div', 'nav', undefined, root);

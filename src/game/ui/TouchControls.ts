@@ -1,3 +1,4 @@
+import { Storage } from '../utils/storage';
 import { h, layer } from './dom';
 
 type Key = 'fire' | 'alt' | 'ability' | 'drift' | 'boost' | 'brake' | 'reset' | 'pause';
@@ -29,10 +30,14 @@ export class TouchControls {
   private stickY = 0;
   private base: HTMLElement;
   private knob: HTMLElement;
+  /** thumb travel for full lock, scaled by the STEERING setting (higher sensitivity = shorter travel) */
+  private radius: number;
   /** tapped the pause button */
   onPause: (() => void) | null = null;
 
   constructor() {
+    const sens = Math.max(0.5, Math.min(1.5, Storage.getSettings().steerSensitivity || 1));
+    this.radius = STICK_RADIUS / sens;
     this.root = layer('touch-ctl');
     this.base = h('div', 'stick', undefined, this.root);
     this.knob = h('div', 'knob', undefined, this.base);
@@ -130,8 +135,8 @@ export class TouchControls {
     const d = Math.hypot(dx, dy);
     // the base follows a thumb that wanders too far, so steering never "runs out"
     let dyy = dy;
-    if (d > STICK_RADIUS * 1.6) {
-      const k = (d - STICK_RADIUS * 1.6) / d;
+    if (d > this.radius * 1.6) {
+      const k = (d - this.radius * 1.6) / d;
       this.stickX += dx * k;
       this.stickY += dy * k;
       this.base.style.transform = `translate(${this.stickX}px, ${this.stickY}px)`;
@@ -140,7 +145,7 @@ export class TouchControls {
     }
     this.stickBoost = dyy < -BOOST_PUSH;
     this.base.classList.toggle('boost', this.stickBoost);
-    const kx = Math.max(-1, Math.min(1, dx / STICK_RADIUS));
+    const kx = Math.max(-1, Math.min(1, dx / this.radius));
     const mag = Math.max(0, (Math.abs(kx) - DEADZONE) / (1 - DEADZONE));
     this.steer = Math.sign(kx) * Math.min(1, mag) ** CURVE;
     this.knob.style.transform = `translate(${kx * 34}px, ${Math.max(-40, Math.min(0, dyy))}px)`;
@@ -165,6 +170,18 @@ export class TouchControls {
     b.classList.toggle('ready', ready);
     b.classList.toggle('locked', locked);
     b.style.setProperty('--cd', Math.max(0, Math.min(1, cd)).toFixed(3));
+  }
+
+  /** DRIFT button glows in the colour of the current drift charge level (0 = off). */
+  setDriftLevel(lvl: number, color: string): void {
+    const b = this.buttons.get('drift')!;
+    b.style.setProperty('--lc', color);
+    b.classList.toggle('charged', lvl > 0);
+    if (lvl > 0) {
+      b.classList.remove('lvlup');
+      void b.offsetWidth;
+      b.classList.add('lvlup');
+    } else b.classList.remove('lvlup');
   }
 
   setLock(on: boolean): void {

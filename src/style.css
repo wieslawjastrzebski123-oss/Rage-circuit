@@ -514,6 +514,12 @@ code {
   background: rgba(0, 229, 255, 0.12);
 }
 
+.lap-opt.diff {
+  font-size: 14px;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
 .lap-opt.selected {
   border-color: var(--pink);
   background: rgba(255, 45, 111, 0.2);
@@ -889,6 +895,50 @@ code {
 
 .hud-drift.active {
   opacity: 1;
+}
+
+.hud-drift {
+  position: relative;
+}
+
+/* a new drift charge level: the meter pops and names the level */
+/* covers the DRIFT label for a moment */
+.drift-lv {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  margin-top: -0.65em;
+  width: 96px;
+  background: rgb(10, 12, 18);
+  line-height: 1.3;
+  font-family: var(--display);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  color: var(--lc, #fff);
+  text-shadow: 0 0 10px var(--lc, #fff), 0 2px 0 #000;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hud-drift.lvlup .drift-lv {
+  animation: drift-lv 0.7s ease-out forwards;
+}
+
+.hud-drift.lvlup .pips {
+  animation: drift-pop 0.35s ease-out;
+}
+
+@keyframes drift-lv {
+  0% { opacity: 0; transform: translateY(6px) scale(1.4); }
+  15% { opacity: 1; transform: translateY(0) scale(1.15); }
+  70% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0.85; transform: scale(1); }
+}
+
+@keyframes drift-pop {
+  0% { transform: scale(1); filter: brightness(1); }
+  30% { transform: scale(1.12); filter: brightness(2) drop-shadow(0 0 8px var(--lc, #fff)); }
+  100% { transform: scale(1); filter: brightness(1); }
 }
 
 .pips {
@@ -1295,6 +1345,46 @@ code {
   will-change: transform, opacity;
 }
 
+.hitmark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 34px;
+  height: 34px;
+  opacity: 0;
+  --c: #ffffff;
+  filter: drop-shadow(0 0 3px #000) drop-shadow(0 0 6px rgba(255, 255, 255, 0.5));
+  will-change: transform, opacity;
+}
+
+.hitmark::before,
+.hitmark::after {
+  content: '';
+  position: absolute;
+  background: linear-gradient(var(--dir), var(--c) 0 36%, transparent 36% 64%, var(--c) 64%);
+}
+
+.hitmark::before {
+  --dir: 90deg;
+  left: 0;
+  right: 0;
+  top: 15px;
+  height: 4px;
+}
+
+.hitmark::after {
+  --dir: 180deg;
+  top: 0;
+  bottom: 0;
+  left: 15px;
+  width: 4px;
+}
+
+.hitmark.kill {
+  --c: #ff3b3b;
+  filter: drop-shadow(0 0 3px #000) drop-shadow(0 0 10px #ff3b3b);
+}
+
 .slider select {
   background: #14161e;
   color: var(--text);
@@ -1698,6 +1788,19 @@ body.touch.in-race .touch-ctl {
   font-size: 13px;
 }
 
+.tbtn.drift.charged {
+  border-color: var(--lc);
+  box-shadow: 0 0 16px var(--lc), inset 0 0 14px var(--lc);
+}
+
+.tbtn.drift.lvlup {
+  animation: drift-btn 0.3s ease-out;
+}
+
+@keyframes drift-btn {
+  30% { box-shadow: 0 0 34px var(--lc), inset 0 0 26px var(--lc); }
+}
+
 .tbtn.boost {
   --s: 0.95;
   right: calc(var(--pad) + var(--b) * 1.3 + 18px);
@@ -1811,6 +1914,10 @@ body.touch .hud-hint {
   .hud-bar .lbl,
   .hud-drift .lbl {
     font-size: 9px;
+  }
+  .drift-lv {
+    width: 52px;
+    font-size: 11px;
   }
   .hud-bar .val {
     font-size: 11px;
@@ -2043,6 +2150,10 @@ body.touch .hud-hint {
     font-size: 14px;
     min-width: 44px;
     padding: 6px 0;
+  }
+  .lap-opt.diff {
+    font-size: 12px;
+    padding: 6px 10px;
   }
   .nav {
     margin-top: 4px;

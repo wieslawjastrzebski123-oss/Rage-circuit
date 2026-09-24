@@ -12,6 +12,7 @@ export interface RaceInfo {
 import type { Track } from '../track/Track';
 import { formatTime } from '../utils/math';
 import { ABILITY_UNLOCK_LAP, ABILITY_UNLOCK_TIME_SHORT, PRIMARY_UNLOCK_TIME, SECONDARY_UNLOCK_LAP, SECONDARY_UNLOCK_TIME_SHORT } from '../constants';
+import { AudioManager } from '../systems/AudioManager';
 import { IS_TOUCH } from './device';
 import { h, hex, layer } from './dom';
 import type { TouchControls } from './TouchControls';
@@ -29,6 +30,7 @@ interface Slot {
 
 const ORD = ['', 'st', 'nd', 'rd', 'th'];
 const TOUCH_LABEL: Record<string, string> = { fire: 'FIRE', alt: 'ALT', ability: 'SKILL' };
+const DRIFT_LVL_NAME = ['', 'BOOST', 'SUPER', 'ULTRA', 'MAX'];
 
 /** In-race heads-up display rendered as HTML over the canvas. */
 export class HUD {
@@ -46,6 +48,8 @@ export class HUD {
   private boost: Bar;
   private drift: HTMLElement;
   private driftPips: HTMLElement[] = [];
+  private driftLvlEl: HTMLElement;
+  private driftLvl = 0;
   private primary: Slot;
   private secondary: Slot;
   private ability: Slot;
@@ -101,6 +105,7 @@ export class HUD {
       p.style.setProperty('--c', hex(L.color));
       this.driftPips.push(p);
     }
+    this.driftLvlEl = h('span', 'drift-lv', '', this.drift);
     this.status = h('div', 'hud-status', '', bl);
 
     const br = h('div', 'hud-br', undefined, this.root);
@@ -286,6 +291,7 @@ export class HUD {
     this.boost.fill.classList.toggle('active', player.boosting);
 
     const lvl = player.drifting ? player.driftLevel : 0;
+    if (lvl !== this.driftLvl) this.driftLevelChanged(lvl);
     this.drift.classList.toggle('active', player.drifting);
     this.driftPips.forEach((p, i) => {
       let fill = 0;
@@ -323,6 +329,25 @@ export class HUD {
       this.miniTimer = 1 / 20;
       this.drawMinimap(cars);
     }
+  }
+
+  /** Each new drift charge level pops the meter, names the level and plays a rising chime. */
+  private driftLevelChanged(lvl: number): void {
+    const up = lvl > this.driftLvl;
+    this.driftLvl = lvl;
+    const color = lvl > 0 ? hex(DRIFT_LEVELS[lvl - 1].color) : '';
+    this.touch?.setDriftLevel(lvl, color);
+    if (!up) {
+      this.drift.classList.remove('lvlup');
+      this.driftLvlEl.textContent = '';
+      return;
+    }
+    this.drift.style.setProperty('--lc', color);
+    this.driftLvlEl.textContent = DRIFT_LVL_NAME[lvl];
+    this.drift.classList.remove('lvlup');
+    void this.drift.offsetWidth;
+    this.drift.classList.add('lvlup');
+    AudioManager.instance.driftLevel(lvl);
   }
 
   private gapText(leader: Car, c: Car): string {

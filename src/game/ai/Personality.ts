@@ -48,3 +48,28 @@ export const PERSONALITIES: Record<Personality['kind'], Personality> = {
     lineBias: 0,
   },
 };
+
+/** Bot skill chosen before a solo race: scales pace, aim and how eagerly they fight. */
+export function withDifficulty(p: Personality, d: 'easy' | 'normal' | 'hard'): Personality {
+  if (d === 'easy') {
+    return {
+      ...p,
+      pace: p.pace * 0.9,
+      aggression: p.aggression * 0.45,
+      aimError: p.aimError * 2 + 0.08,
+      driftChance: p.driftChance * 0.6,
+      shortcutChance: p.shortcutChance * 0.5,
+    };
+  }
+  if (d === 'hard') {
+    return {
+      ...p,
+      pace: Math.min(0.99, p.pace * 1.035),
+      aggression: Math.min(1, p.aggression * 1.3 + 0.1),
+      aimError: p.aimError * 0.6,
+      driftChance: Math.min(1, p.driftChance * 1.15),
+      energyReserve: p.energyReserve * 0.7,
+    };
+  }
+  return p;
+}

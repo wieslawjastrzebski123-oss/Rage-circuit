@@ -1,4 +1,4 @@
-import { PERSONALITIES, type Personality } from '../ai/Personality';
+import { PERSONALITIES, withDifficulty, type Personality } from '../ai/Personality';
 import { createAbility } from '../abilities';
 import { DEBUG, DEFAULT_LAPS } from '../constants';
 import { CAR_IDS, CARS, type CarId } from '../data/cars';
@@ -123,7 +123,8 @@ export class RaceSession {
     this.respawn = new RespawnSystem(world, this.race);
     this.cam = new ChaseCamera(gfx, track);
 
-    const personalities = shuffle([PERSONALITIES.aggressive, PERSONALITIES.balanced, PERSONALITIES.racer]);
+    const difficulty = loadout?.difficulty ?? 'normal';
+    const personalities = shuffle([PERSONALITIES.aggressive, PERSONALITIES.balanced, PERSONALITIES.racer]).map((p) => withDifficulty(p, difficulty));
     if (!loadout) {
       const ids = shuffle(CAR_IDS.slice());
       ids.forEach((id, i) => world.cars.push(this.makeBot(id, personalities[i % 3])));

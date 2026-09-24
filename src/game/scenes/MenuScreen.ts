@@ -105,7 +105,8 @@ export class MenuScreen {
       'Rockets home in lightly – dodge them with a hard turn or a drift.',
       'Red barrels explode. Shoot them when an enemy drives past.',
       'The yellow-striped shortcut is faster but narrow – one mistake and you lose more than you gain.',
-      'Destroying a rival refills Boost and some Energy.',
+      'Destroying a rival refills Boost and some Energy. Two or more in a row without dying is a streak (DOUBLE KILL, TRIPLE KILL…): a full Boost tank and extra Energy.',
+      'Solo races: pick the bot skill (EASY / NORMAL / HARD) under the lap count.',
     ].forEach((t) => h('li', '', t, tips));
     button('BACK', panel, () => {
       this.click();
@@ -138,6 +139,24 @@ export class MenuScreen {
     slider('MASTER VOLUME', 'masterVolume');
     slider('SFX VOLUME', 'sfxVolume');
     slider('CAMERA SHAKE', 'cameraShake');
+    if (IS_TOUCH) {
+      // steering stick: 50% = long, calm thumb travel … 150% = short, twitchy
+      const row = h('label', 'slider', undefined, panel);
+      h('span', '', 'STEERING', row);
+      const input = h('input', '', undefined, row);
+      input.type = 'range';
+      input.min = '50';
+      input.max = '150';
+      input.step = '5';
+      input.value = String(Math.round((s.steerSensitivity || 1) * 100));
+      const val = h('b', '', `${input.value}%`, row);
+      input.addEventListener('input', () => {
+        s.steerSensitivity = Number(input.value) / 100;
+        val.textContent = `${input.value}%`;
+        Storage.saveSettings(s);
+      });
+      input.addEventListener('change', () => this.click());
+    }
     const q = h('label', 'slider', undefined, panel);
     h('span', '', 'GRAPHICS', q);
     const sel = h('select', '', '<option value="high">HIGH (shadows)</option><option value="low">LOW (faster)</option>', q);

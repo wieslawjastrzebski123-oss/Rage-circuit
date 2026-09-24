@@ -69,6 +69,10 @@ export class Effects {
   private texts: FloatText[] = [];
   private textIdx = 0;
   private textLayer: HTMLDivElement;
+  /** hit marker that sticks to the car you just hit */
+  private marker: HTMLDivElement;
+  private markerTarget: { x: number; y: number } | null = null;
+  private markerT = 1;
   private ghosts: Ghost[] = [];
   private ghostIdx = 0;
   private flashes: Flash[] = [];
@@ -152,6 +156,9 @@ export class Effects {
     this.textLayer = document.createElement('div');
     this.textLayer.className = 'float-layer';
     document.getElementById('ui')!.appendChild(this.textLayer);
+    this.marker = document.createElement('div');
+    this.marker.className = 'hitmark';
+    this.textLayer.appendChild(this.marker);
   }
 
   // --------------------------------------------------------------- camera
@@ -494,6 +501,13 @@ export class Effects {
     this.floatText(x, y, `${Math.round(amount)}`, toPlayer ? 0xff5a5a : big ? 0xffd23f : 0xffffff, big ? 20 : 14);
   }
 
+  /** ✕ over the car your shot hit – red and larger for the killing blow. */
+  hitMarker(target: { x: number; y: number }, kill: boolean): void {
+    this.markerTarget = target;
+    this.markerT = 0;
+    this.marker.classList.toggle('kill', kill);
+  }
+
   // --------------------------------------------------------------- update
   update(dt: number): void {
     const cam = this.gfx.camera;
@@ -528,6 +542,17 @@ export class Effects {
       f.light.intensity = f.peak * Math.max(0, 1 - f.t / f.dur);
     }
     const p = this.v;
+    if (this.markerTarget && this.markerT < 1) {
+      const kill = this.marker.classList.contains('kill');
+      this.markerT += dt / (kill ? 0.5 : 0.22);
+      const k = Math.min(1, this.markerT);
+      this.gfx.project(this.markerTarget.x, 12, this.markerTarget.y, p);
+      if (k >= 1 || p.z > 1) this.marker.style.opacity = '0';
+      else {
+        this.marker.style.opacity = String(1 - k * k);
+        this.marker.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%) rotate(45deg) scale(${(kill ? 1.5 : 1.15) - 0.3 * k})`;
+      }
+    }
     for (const ft of this.texts) {
       if (!ft || ft.t >= 1) continue;
       ft.t += dt / 0.8;
