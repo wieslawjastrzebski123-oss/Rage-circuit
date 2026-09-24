@@ -16,7 +16,8 @@ export interface ObstacleDef {
 }
 
 export interface PickupDef {
-  kind: 'energy' | 'boost' | 'repair';
+  /** hunter: launches a leader-seeking missile (the leader itself just gets boost) */
+  kind: 'energy' | 'boost' | 'repair' | 'hunter';
   x: number;
   y: number;
 }
@@ -161,5 +162,7 @@ export const INDUSTRIAL_DISTRICT: TrackDef = {
     { kind: 'boost', x: 1300, y: 740 },
     { kind: 'repair', x: 690, y: 3100 },
     { kind: 'energy', x: 6900, y: 3200 },
+    { kind: 'hunter', x: 3650, y: 4935 },
+    { kind: 'hunter', x: 6910, y: 2500 },
   ],
 };

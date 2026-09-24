@@ -14,8 +14,14 @@ import type { World } from './World';
 export type RacePhase = 'countdown' | 'racing' | 'done';
 
 const COUNTDOWN = 3;
-const RUBBER_MAX = 0.05; // at most +5% acceleration when far behind
-const RUBBER_GAP = 2600; // px behind the leader for full bonus
+/** catch-up when far behind: up to +12% acceleration and +6% top speed (see Car) */
+const RUBBER_MAX = 0.12;
+const RUBBER_START = 300; // units behind the leader before it kicks in
+const RUBBER_GAP = 2400; // …and how much further back for the full bonus
+/** slipstream: a car this far ahead (units), nearly in line and going the same way, pulls you along */
+const SLIP_MIN = 60;
+const SLIP_MAX = 460;
+const SLIP_LATERAL = 38;
 
 /** Countdown, laps, positions, finish order, rubber banding. */
 export class RaceManager {
@@ -93,6 +99,8 @@ export class RaceManager {
     this.updateUnlocks();
     this.updateStandings();
     this.updateRubberBand();
+    this.updateSlipstream(dt);
+    this.updateLeader();
 
     for (const c of w.cars) {
       const v = w.view(c);
@@ -176,8 +184,39 @@ export class RaceManager {
     for (const c of this.world.cars) if (!c.race.finished) lead = Math.max(lead, c.race.progress);
     for (const c of this.world.cars) {
       const gap = lead - c.race.progress;
-      c.rubberBand = 1 + RUBBER_MAX * clamp((gap - 400) / RUBBER_GAP, 0, 1);
+      c.rubberBand = 1 + RUBBER_MAX * clamp((gap - RUBBER_START) / RUBBER_GAP, 0, 1);
     }
+  }
+
+  /** Drafting: close behind another car, in line and heading the same way. Eases in and out. */
+  private updateSlipstream(dt: number): void {
+    const cars = this.world.cars;
+    for (const c of cars) {
+      let want = 0;
+      if (c.alive && !c.airborne && c.speed > 250) {
+        const hx = Math.cos(c.heading);
+        const hy = Math.sin(c.heading);
+        for (const o of cars) {
+          if (o === c || !o.alive || o.speed < 200) continue;
+          const dx = o.x - c.x;
+          const dy = o.y - c.y;
+          const ahead = dx * hx + dy * hy;
+          if (ahead < SLIP_MIN || ahead > SLIP_MAX) continue;
+          const lateral = Math.abs(-dx * hy + dy * hx);
+          if (lateral > SLIP_LATERAL) continue;
+          if (Math.cos(o.heading - c.heading) < 0.85) continue;
+          // strongest a couple of car lengths back, fading towards the edges of the wake
+          want = Math.max(want, (1 - lateral / SLIP_LATERAL) * (1 - Math.max(0, ahead - 200) / (SLIP_MAX - 200)));
+        }
+      }
+      c.slip += (want - c.slip) * (1 - Math.exp(-(want > c.slip ? 2.5 : 4) * dt));
+    }
+  }
+
+  private updateLeader(): void {
+    const leader = this.standings.find((c) => !c.race.finished) ?? null;
+    this.world.leader = leader;
+    for (const c of this.world.cars) c.isLeader = c === leader;
   }
 
   positionOf(car: Car): number {

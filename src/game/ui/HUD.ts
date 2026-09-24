@@ -10,7 +10,8 @@ export interface RaceInfo {
   currentLap(car: Car): number;
 }
 import type { Track } from '../track/Track';
-import { formatTime } from '../utils/math';
+import type { Gfx } from '../render/Gfx';
+import { clamp, formatTime } from '../utils/math';
 import { ABILITY_UNLOCK_LAP, ABILITY_UNLOCK_TIME_SHORT, PRIMARY_UNLOCK_TIME, SECONDARY_UNLOCK_LAP, SECONDARY_UNLOCK_TIME_SHORT } from '../constants';
 import { AudioManager } from '../systems/AudioManager';
 import { IS_TOUCH } from './device';
@@ -59,6 +60,9 @@ export class HUD {
   private countdownEl: HTMLElement;
   private wrongWay: HTMLElement;
   private rearView: HTMLElement;
+  private threat: HTMLElement;
+  private threatEdge: HTMLElement;
+  private slipEl: HTMLElement;
   private respawn: HTMLElement;
   private hint: HTMLElement;
   private feedEl: HTMLElement;
@@ -120,6 +124,9 @@ export class HUD {
     this.countdownEl = h('div', 'hud-countdown', '', this.root);
     this.wrongWay = h('div', 'hud-wrong', 'WRONG WAY', this.root);
     this.rearView = h('div', 'hud-rear', '◀ REAR VIEW ▶', this.root);
+    this.threatEdge = h('div', 'hud-threat-edge', '', this.root);
+    this.threat = h('div', 'hud-threat', '⚠ MISSILE LOCK ⚠', this.root);
+    this.slipEl = h('div', 'hud-slip', 'SLIPSTREAM', this.root);
     this.respawn = h('div', 'hud-respawn', '', this.root);
     this.hint = h('div', 'hud-hint', '', this.root);
     this.feedEl = h('div', 'hud-feed', '', this.root);
@@ -230,6 +237,21 @@ export class HUD {
     this.rearView.classList.toggle('show', on);
   }
 
+  /**
+   * Missile warning. `angle` is where the missile is on screen (0 = ahead/top, +π/2 = right,
+   * ±π = behind/bottom); `near` 0..1 grows as it closes in. null hides it.
+   */
+  setThreat(angle: number | null, near = 0): void {
+    const on = angle !== null;
+    this.threat.classList.toggle('show', on);
+    this.threatEdge.classList.toggle('show', on);
+    if (!on) return;
+    const st = this.threatEdge.style;
+    st.setProperty('--tx', `${50 + Math.sin(angle) * 55}%`);
+    st.setProperty('--ty', `${50 - Math.cos(angle) * 55}%`);
+    st.setProperty('--a', (0.35 + 0.5 * near).toFixed(2));
+  }
+
   setRespawn(t: number | null): void {
     if (t === null) {
       this.respawn.classList.remove('show');
@@ -329,6 +351,7 @@ export class HUD {
     this.updateSlot('a', this.ability, player.abilityName, player.ability.cooldownRatio, player.energy >= player.ability.info.energyCost, `${player.ability.info.energyCost} EN`, player, aLock);
 
     this.setText('spd', this.speed, `${Math.round(player.speed * 0.36)}<small>KM/H</small>`);
+    this.slipEl.classList.toggle('show', player.alive && player.slip > 0.35);
 
     this.miniTimer -= dt;
     if (this.miniTimer <= 0) {
@@ -402,4 +425,33 @@ export class HUD {
   destroy(): void {
     this.root.remove();
   }
+}
+
+/**
+ * Shared by solo and online races: points the HUD warning at the nearest missile locked onto `car`
+ * and beeps, faster as it closes in. Returns the updated beep timer.
+ */
+export function warnThreat(gfx: Gfx, hud: HUD, car: Car, missile: { x: number; y: number } | null, beep: number, dt: number): number {
+  if (!missile || !car.alive) {
+    hud.setThreat(null);
+    return 0;
+  }
+  const d = Math.hypot(missile.x - car.x, missile.y - car.y);
+  // screen direction: forward / right components relative to where the camera looks
+  const cam = gfx.camera.matrixWorld.elements;
+  const fx = -cam[8];
+  const fz = -cam[10];
+  const fl = Math.hypot(fx, fz) || 1;
+  const vx = missile.x - car.x;
+  const vz = missile.y - car.y;
+  const f = (vx * fx + vz * fz) / fl;
+  const r = (vx * -fz + vz * fx) / fl;
+  const near = clamp(1 - d / 1400, 0, 1);
+  hud.setThreat(Math.atan2(r, f), near);
+  beep -= dt;
+  if (beep <= 0) {
+    AudioManager.instance.lockWarning();
+    beep = 0.12 + 0.5 * (1 - near);
+  }
+  return beep;
 }

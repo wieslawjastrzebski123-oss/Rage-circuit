@@ -3,7 +3,8 @@ import { CARS } from '../data/cars';
 import { Car } from '../entities/Car';
 import { Mine } from '../entities/Mine';
 import { NetCar } from '../entities/NetCar';
-import { Projectile, type ProjectileKind } from '../entities/Projectile';
+import { Projectile } from '../entities/Projectile';
+import { PROJECTILE_KINDS } from '../systems/CombatSystem';
 import type { NetClient } from '../net/NetClient';
 import {
   CF_AIR,
@@ -35,7 +36,7 @@ import { PickupSystem } from '../systems/PickupSystem';
 import type { World } from '../systems/World';
 import { TrackView } from '../track/TrackView';
 import { ENVIRONMENTS } from '../render/environments';
-import { HUD, type RaceInfo } from '../ui/HUD';
+import { HUD, warnThreat, type RaceInfo } from '../ui/HUD';
 import { button, h, layer, setCrosshair } from '../ui/dom';
 import { angleDiff, lerp } from '../utils/math';
 import { createWeapon } from '../weapons';
@@ -47,7 +48,6 @@ import type { TrackId } from '../track/TrackData';
 const INTERP = 0.1;
 const INTERP_MAX = 0.3;
 const INPUT_DT = 1 / TICK_RATE;
-const PROJ_KINDS: ProjectileKind[] = ['bullet', 'shell', 'rocket'];
 
 interface Buffered {
   recv: number;
@@ -91,6 +91,7 @@ export class NetRaceSession implements RaceInfo {
   private history: { seq: number; c: Car['controls'] }[] = [];
   private seq = 0;
   private inputAcc = 0;
+  private threatBeep = 0;
   private offX = 0;
   private offY = 0;
   private offH = 0;
@@ -130,6 +131,7 @@ export class NetRaceSession implements RaceInfo {
       cars: [],
       time: 0,
       raceStarted: false,
+      leader: null,
       effects: null!,
       audio,
       combat: null!,
@@ -170,6 +172,7 @@ export class NetRaceSession implements RaceInfo {
       cars: [],
       time: 0,
       raceStarted: false,
+      leader: null,
       effects: mute as World['effects'],
       audio: mute as World['audio'],
       combat: { applyDamage: () => 0 } as unknown as World['combat'],
@@ -189,7 +192,7 @@ export class NetRaceSession implements RaceInfo {
 
     this.input = new InputManager(gfx);
     // touch auto-aim picks rivals from the displayed (server) positions
-    this.input.findTarget = (heading) => this.world.combat.findTargetInCone(this.me, heading, 0.45, 1000);
+    this.input.findTarget = (heading) => this.world.combat.findTargetInCone(this.me, heading, 0.45, 1200);
     if (this.input.touch) this.input.touch.onPause = () => this.toggleMenu();
     this.cam = new ChaseCamera(gfx, track);
     this.hud = new HUD(track);
@@ -276,6 +279,9 @@ export class NetRaceSession implements RaceInfo {
       if (b.race.finished) return 1;
       return b.race.progress - a.race.progress;
     });
+    // crown over the leader
+    const leader = this.standings.find((c) => !c.race.finished) ?? null;
+    for (const c of this.world.cars) c.isLeader = c === leader;
     this.pickups.showState(s.pk, this.world.time);
     const barrels = this.world.collisions.barrels;
     s.b.forEach((b, i) => {
@@ -318,6 +324,8 @@ export class NetRaceSession implements RaceInfo {
     car.driftBoostColor = t[27];
     car.z = t[28] ?? 0;
     car.vz = t[29] ?? 0;
+    car.oilTime = t[30] ?? 0;
+    car.slip = t[31] ?? 0;
     car.airborne = (flags & CF_AIR) !== 0;
     if (withControls) {
       car.aimAngle = t[8];
@@ -397,6 +405,7 @@ export class NetRaceSession implements RaceInfo {
 
     this.cam.rear = !this.menu && !this.results && this.input.rearView;
     this.hud.setRearView(this.cam.rear && this.me.alive);
+    this.updateThreat(now, rawDt);
     this.cam.update(dt, this.me, this.world.effects);
     this.gfx.follow(this.me.x, this.me.y);
     this.smokeTimer -= dt;
@@ -417,7 +426,7 @@ export class NetRaceSession implements RaceInfo {
     const screech = me.alive && (me.drifting || (me.controls.throttle < 0 && me.forwardSpeed > 250)) ? 1 : 0;
     a.updateEngine(me.alive ? me.speed / me.stats.maxSpeed : 0, me.alive ? me.controls.throttle : 0, me.boostPower, screech);
     const cross = document.getElementById('crosshair');
-    const locked = me.alive && this.world.combat.findTargetInCone(me, me.aimAngle, 0.12, 900) !== null;
+    const locked = me.alive && this.world.combat.findTargetInCone(me, me.aimAngle, 0.12, 1200) !== null;
     cross?.classList.toggle('lock', locked);
     this.input.touch?.setLock(locked);
 
@@ -503,6 +512,8 @@ export class NetRaceSession implements RaceInfo {
     me.aimAngle = p.aimAngle;
     me.z = p.z;
     me.vz = p.vz;
+    me.oilTime = p.oilTime;
+    me.slip = p.slip;
     me.airborne = p.airborne;
     if (p.alive !== me.alive) me.setAlive(p.alive);
     me.drifting = p.drifting;
@@ -525,6 +536,24 @@ export class NetRaceSession implements RaceInfo {
     me.controls.aimY = p.controls.aimY;
   }
 
+  /** Missile warning: the nearest homing missile the server says is locked onto us. */
+  private updateThreat(now: number, dt: number): void {
+    const latest = this.snaps.at(-1);
+    const me = this.me;
+    let best: { x: number; y: number; d: number } | null = null;
+    if (latest && me.alive) {
+      const age = now - latest.recv - this.interpDelay;
+      for (const p of latest.s.p) {
+        if (p[5] !== this.myId) continue;
+        const x = p[1] + p[3] * age;
+        const y = p[2] + p[4] * age;
+        const d = Math.hypot(x - me.x, y - me.y);
+        if (!best || d < best.d) best = { x, y, d };
+      }
+    }
+    this.threatBeep = warnThreat(this.gfx, this.hud, me, best, this.threatBeep, dt);
+  }
+
   private updateProjectiles(now: number): void {
     const latest = this.snaps.at(-1);
     if (!latest) return;
@@ -534,7 +563,7 @@ export class NetRaceSession implements RaceInfo {
     for (let i = 0; i < ps.length; i++) {
       const p = ps[i];
       const proj = (this.projPool[i] ??= new Projectile(root));
-      proj.show(PROJ_KINDS[p[0]] ?? 'bullet', p[1] + p[3] * age, p[2] + p[4] * age, p[3], p[4]);
+      proj.show(PROJECTILE_KINDS[p[0]] ?? 'bullet', p[1] + p[3] * age, p[2] + p[4] * age, p[3], p[4]);
     }
     for (let i = ps.length; i < this.projPool.length; i++) this.projPool[i].kill();
     const ms = latest.s.m;
@@ -542,7 +571,7 @@ export class NetRaceSession implements RaceInfo {
       const m = ms[i];
       const mine = (this.minePool[i] ??= new Mine(root));
       const owner = this.byId.get(m[4]);
-      mine.show(m[0], m[1], m[2] + (now - latest.recv), m[3] === 1, owner?.stats.color ?? 0xffb000, this.world.time);
+      mine.show(m[0], m[1], m[2] + (now - latest.recv), m[3] === 1, owner?.stats.color ?? 0xffb000, this.world.time, m[5] === 1 ? 'oil' : 'mine');
     }
     for (let i = ms.length; i < this.minePool.length; i++) this.minePool[i].kill();
   }

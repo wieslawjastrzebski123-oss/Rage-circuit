@@ -107,6 +107,7 @@ export class ServerRace {
       cars: [],
       time: 0,
       raceStarted: false,
+      leader: null,
       effects: recorder(CH_EFFECTS, this.broadcast) as World['effects'],
       audio: recorder(CH_AUDIO, this.broadcast) as World['audio'],
       combat: null!,
@@ -354,6 +355,8 @@ export class ServerRace {
       c.driftBoostColor,
       r1(c.z),
       r1(c.vz),
+      Math.round(c.oilTime * 100) / 100,
+      Math.round(c.slip * 100) / 100,
     ];
   }
 

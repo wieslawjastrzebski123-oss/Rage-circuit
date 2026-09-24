@@ -2,6 +2,12 @@ import * as THREE from 'three';
 import type { Car } from '../entities/Car';
 import { labelTexture } from '../render/Textures';
 
+let crownTex: THREE.Texture | null = null;
+function crownTexture(): THREE.Texture {
+  if (!crownTex) crownTex = labelTexture('👑', '#ffd23f');
+  return crownTex;
+}
+
 const BAR_W = 34;
 const _v = new THREE.Vector3();
 
@@ -10,6 +16,7 @@ export class NameTag {
   private label: THREE.Sprite;
   private barBg: THREE.Sprite;
   private barFill: THREE.Sprite;
+  private crown: THREE.Sprite;
   private car: Car;
 
   constructor(car: Car, root: THREE.Object3D) {
@@ -21,19 +28,23 @@ export class NameTag {
     this.barBg.scale.set(BAR_W + 2, 3.4, 1);
     this.barFill = new THREE.Sprite(new THREE.SpriteMaterial({ color: car.stats.color, depthWrite: false, transparent: true }));
     this.barFill.center.set(0, 0.5);
-    root.add(this.label, this.barBg, this.barFill);
+    this.crown = new THREE.Sprite(new THREE.SpriteMaterial({ map: crownTexture(), depthWrite: false, transparent: true }));
+    this.crown.scale.set(64, 16, 1);
+    root.add(this.label, this.barBg, this.barFill, this.crown);
   }
 
   update(camera: THREE.Camera): void {
     const c = this.car;
     const vis = c.alive;
     this.label.visible = this.barBg.visible = this.barFill.visible = vis;
+    this.crown.visible = vis && c.isLeader;
     if (!vis) return;
-    this.label.position.set(c.x, 46, c.y);
-    this.barBg.position.set(c.x, 38, c.y);
+    this.crown.position.set(c.x, 58 + c.z, c.y);
+    this.label.position.set(c.x, 46 + c.z, c.y);
+    this.barBg.position.set(c.x, 38 + c.z, c.y);
     const r = Math.max(0, c.hp / c.maxHp);
     this.barFill.scale.set(Math.max(0.01, BAR_W * r), 2.4, 1);
-    this.barFill.position.set(c.x, 38, c.y);
+    this.barFill.position.set(c.x, 38 + c.z, c.y);
     // left-align the fill in screen space: shift along the camera's right vector
     this.barFill.position.addScaledVector(_v.set(1, 0, 0).applyQuaternion(camera.quaternion), -BAR_W / 2);
     this.barFill.material.color.setHex(r < 0.3 ? 0xff3030 : c.stats.color);
@@ -41,6 +52,7 @@ export class NameTag {
 
   destroy(): void {
     this.label.removeFromParent();
+    this.crown.removeFromParent();
     this.barBg.removeFromParent();
     this.barFill.removeFromParent();
   }

@@ -117,7 +117,7 @@ export class AudioManager {
   }
 
   // ------------------------------------------------------------ game sounds
-  shot(kind: 'mg' | 'cannon' | 'rocket' | 'mine', src?: Positioned): void {
+  shot(kind: 'mg' | 'cannon' | 'rocket' | 'mine' | 'shotgun' | 'rail' | 'swarm' | 'oil' | 'hunter', src?: Positioned): void {
     const v = this.vol(src);
     switch (kind) {
       case 'mg':
@@ -136,7 +136,34 @@ export class AudioManager {
         this.tone('triangle', 420, 180, 0.12, 0.25 * v);
         this.tone('sine', 1200, 1200, 0.06, 0.1 * v, 0.12);
         break;
+      case 'shotgun':
+        this.burst('lowpass', 3200, 300, 0.22, 0.5 * v, 0.8);
+        this.tone('square', 150, 60, 0.12, 0.12 * v);
+        break;
+      case 'rail':
+        // rising charge whine, then a sharp crack
+        this.tone('sawtooth', 600, 3200, 0.09, 0.08 * v);
+        this.burst('highpass', 5000, 1500, 0.18, 0.4 * v, 0.7, 0.08);
+        this.tone('sine', 220, 60, 0.3, 0.3 * v, 0.08);
+        break;
+      case 'swarm':
+        for (let i = 0; i < 3; i++) this.burst('bandpass', 700, 2600, 0.25, 0.18 * v, 2, i * 0.06);
+        break;
+      case 'oil':
+        this.burst('lowpass', 500, 120, 0.35, 0.35 * v, 1);
+        this.tone('sine', 90, 50, 0.2, 0.15 * v);
+        break;
+      case 'hunter':
+        this.burst('bandpass', 300, 1800, 0.7, 0.45 * v, 2);
+        this.tone('sawtooth', 70, 140, 0.6, 0.1 * v);
+        break;
     }
+  }
+
+  /** Missile-lock warning beep (the session repeats it faster as the missile closes in). */
+  lockWarning(): void {
+    this.tone('square', 1760, 1760, 0.06, 0.09);
+    this.tone('square', 1320, 1320, 0.06, 0.07, 0.07);
   }
 
   explosion(src: Positioned, size = 1): void {

@@ -1,6 +1,7 @@
 import { Blink } from '../abilities/Blink';
 import { EMP_RADIUS } from '../abilities/EMP';
 import type { Car } from '../entities/Car';
+import { weaponRange } from '../data/weapons';
 import type { World } from '../systems/World';
 import { angleDiff, damp, rand } from '../utils/math';
 import type { Personality } from './Personality';
@@ -44,9 +45,14 @@ export class CombatAI {
     return true;
   }
 
+  /** how far the primary can hit, trimmed a little so bots don't spray at the edge of range */
+  private get reach(): number {
+    return Math.min(1100, weaponRange(this.car.primary.stats) * 0.85);
+  }
+
   private pickTarget(): void {
     const car = this.car;
-    const range = 460 + this.p.aggression * 220;
+    const range = Math.max(360, this.reach * (0.75 + 0.25 * this.p.aggression));
     let best: Car | null = null;
     let bestScore = Infinity;
     for (const o of this.world.cars) {
@@ -113,10 +119,10 @@ export class CombatAI {
       c.aimX = car.x + Math.cos(a) * d;
       c.aimY = car.y + Math.sin(a) * d;
 
-      // primary in bursts
+      // primary in bursts (only when it can actually reach – the shotgun wants to be close)
       const reserve = this.p.energyReserve;
       if (this.pause > 0) this.pause -= dt;
-      else if (car.energy > reserve) {
+      else if (car.energy > reserve && d < this.reach) {
         c.firePrimary = true;
         this.burst += dt;
         if (this.burst > rand(0.35, 0.9) * (0.5 + this.p.aggression)) {
@@ -129,15 +135,17 @@ export class CombatAI {
       this.secondaryDelay -= dt;
       if (this.secondaryDelay <= 0 && car.secondary.canFire(car) && car.energy > reserve * 0.6 + car.secondary.stats.energyCost) {
         const facing = Math.abs(angleDiff(car.heading, Math.atan2(t.y - car.y, t.x - car.x)));
-        if (car.secondary.stats.id === 'rocket' && d < 560 && facing < 1.1) {
+        const sid = car.secondary.stats.id;
+        if ((sid === 'rocket' && d < 560 && facing < 1.1) || (sid === 'swarm' && d < 720 && facing < 1.3)) {
           c.fireSecondary = true;
           this.secondaryDelay = rand(1.5, 4) / (0.5 + this.p.aggression);
         }
       }
     }
 
-    // mines: drop when someone is right behind
-    if (car.secondary.stats.id === 'mine' && this.secondaryDelay <= 0 && car.secondary.canFire(car)) {
+    // mines / oil: drop when someone is right behind
+    const dropper = car.secondary.stats.id === 'mine' || car.secondary.stats.id === 'oil';
+    if (dropper && this.secondaryDelay <= 0 && car.secondary.canFire(car)) {
       for (const o of this.world.cars) {
         if (o === car || !o.alive) continue;
         const dx = o.x - car.x;

@@ -36,6 +36,8 @@ export interface World {
   hud: HUD | null;
   /** the locally controlled car (solo mode / client prediction) */
   player: Car | null;
+  /** first place right now (set by the race manager; the hunter missile goes for it) */
+  leader: Car | null;
   /** personal channel for the human driving `car`, or null if it's a bot */
   view(car: Car): Viewer | null;
 }

@@ -4,7 +4,8 @@ import type { TrackId } from '../track/TrackData';
 
 /** Shared between the browser client and the Node server. */
 // 2: track choice, car height (jumps)
-export const PROTOCOL_VERSION = 2;
+// 3: new weapons (projectile kinds, missile targets, oil slicks), oil and slipstream per car
+export const PROTOCOL_VERSION = 3;
 export const TICK_RATE = 60; // server simulation ticks per second
 export const SUBSTEPS = 2; // physics sub-steps per tick (dt = 1/120 like solo)
 export const SNAPSHOT_EVERY = 2; // ticks per snapshot → 30 Hz
@@ -81,7 +82,7 @@ export type ServerMsg =
  * Per-car public state:
  * [id, x, y, heading, vx, vy, angVel, bodyYaw, aim, flags, driftTime, boostPower,
  *  driftBoostTime, overcharge, shield, emp, ghost, hitFlash, frozen, hp, throttle, steer,
- *  progress, lapsDone, finishOrder, finishTime, cpPassed, driftBoostColor, z, vz]
+ *  progress, lapsDone, finishOrder, finishTime, cpPassed, driftBoostColor, z, vz, oilTime, slip]
  */
 export type CarTuple = number[];
 export const CF_ALIVE = 1;
@@ -124,9 +125,9 @@ export interface Snapshot {
   ph: number;
   c: CarTuple[];
   me: OwnState | null;
-  /** projectiles: [kind(0 bullet,1 shell,2 rocket), x, y, vx, vy] */
+  /** projectiles: [kind (index in CombatSystem PROJECTILE_KINDS), x, y, vx, vy, missile target car id or 0] */
   p: number[][];
-  /** mines: [x, y, age, armed, ownerId] */
+  /** mines and oil slicks: [x, y, age, armed, ownerId, kind (0 mine, 1 oil)] */
   m: number[][];
   /** barrels: [x, y, rot, alive, fuse>=0] */
   b: number[][];

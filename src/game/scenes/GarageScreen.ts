@@ -100,7 +100,7 @@ export class GarageScreen {
         h(
           'div',
           'wstats',
-          `<span>DMG <b>${w.damage}</b></span><span>ENERGY <b>${w.energyCost}</b></span><span>${w.cooldown < 0.2 ? 'RATE <b>' + Math.round(1 / w.cooldown) + '/s</b>' : 'CD <b>' + w.cooldown + 's</b>'}</span>`,
+          `<span>DMG <b>${w.id === 'oil' ? 'SPIN' : w.count ? `${w.count}×${w.damage}` : w.damage}</b></span><span>ENERGY <b>${w.energyCost}</b></span><span>${w.cooldown < 0.2 ? 'RATE <b>' + Math.round(1 / w.cooldown) + '/s</b>' : 'CD <b>' + w.cooldown + 's</b>'}</span>`,
           o,
         );
         o.addEventListener('click', () => {

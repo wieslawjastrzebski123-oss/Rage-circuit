@@ -6,18 +6,23 @@ import { dist2 } from '../utils/math';
 import type { World } from './World';
 
 const RESPAWN = 12;
+/** the hunter is rarer */
+const HUNTER_RESPAWN = 28;
 const RADIUS = 34;
 
 const INFO = {
   energy: { color: 0x00e5ff, label: '+40 ENERGY' },
   boost: { color: 0xffb000, label: '+50 BOOST' },
   repair: { color: 0x7dff4a, label: '+35 REPAIR' },
+  hunter: { color: 0xff1a6a, label: 'HUNTER LAUNCHED' },
 } as const;
 
 const GEO = {
   energy: new THREE.OctahedronGeometry(9, 0),
   boost: new THREE.ConeGeometry(8, 16, 4),
   repair: new THREE.BoxGeometry(12, 12, 12),
+  // a spiky star
+  hunter: new THREE.IcosahedronGeometry(10, 0),
 };
 for (const g of Object.values(GEO)) g.userData.shared = true;
 
@@ -112,6 +117,24 @@ export class PickupSystem {
       case 'repair':
         c.hp = Math.min(c.maxHp, c.hp + 35);
         break;
+      case 'hunter': {
+        const leader = w.leader;
+        p.timer = HUNTER_RESPAWN;
+        if (p.group) p.group.visible = false;
+        w.effects.pickup(p.def.x, p.def.y, INFO.hunter.color);
+        if (!leader || leader === c) {
+          // nobody to hunt: the leader just gets a boost refill
+          c.boostMeter = Math.min(100, c.boostMeter + 50);
+          w.view(c)?.effects.floatText(c.x, c.y, '+50 BOOST', INFO.boost.color, 15);
+          w.view(c)?.audio.pickup();
+          return;
+        }
+        w.combat.launchHunter(c, leader);
+        w.view(c)?.hud?.flash(`HUNTER → ${leader.name}`, '#ff1a6a', 1600);
+        w.view(leader)?.hud?.announce('HUNTER INCOMING!', '#ff1a6a', 1600);
+        w.hud?.feed(`🎯 ${c.name} launched a HUNTER at ${leader.name}`);
+        return;
+      }
     }
     p.timer = RESPAWN + Math.random() * 3;
     if (p.group) p.group.visible = false;

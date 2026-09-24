@@ -22,7 +22,7 @@ import { TrackView } from '../track/TrackView';
 import { ENVIRONMENTS } from '../render/environments';
 import { DebugOverlay } from '../ui/DebugOverlay';
 import { IS_TOUCH } from '../ui/device';
-import { HUD } from '../ui/HUD';
+import { HUD, warnThreat } from '../ui/HUD';
 import { button, h, layer, setCrosshair } from '../ui/dom';
 import { pick, shuffle } from '../utils/math';
 import { bestLap as storedBestLap, recordKey, setBestLap, Storage, type Loadout } from '../utils/storage';
@@ -77,6 +77,7 @@ export class RaceSession {
   private pauseLayer: HTMLElement | null = null;
   private finished = false;
   private resultsTimer = -1;
+  private threatBeep = 0;
   private crosshair = document.getElementById('crosshair');
   private onKey = (e: KeyboardEvent) => this.handleKey(e);
   private onBlur = () => this.setPaused(true);
@@ -101,6 +102,7 @@ export class RaceSession {
       cars: [],
       time: 0,
       raceStarted: false,
+      leader: null,
       effects: null!,
       audio,
       combat: null!,
@@ -138,7 +140,7 @@ export class RaceSession {
       player.secondary = createWeapon(loadout.secondary);
       player.ability = createAbility(player.stats.ability);
       world.player = player;
-      this.input.findTarget = (heading) => world.combat.findTargetInCone(player, heading, 0.45, 1000);
+      this.input.findTarget = (heading) => world.combat.findTargetInCone(player, heading, 0.45, 1200);
       if (this.input.touch) this.input.touch.onPause = () => this.setPaused(!this.paused);
       const bots = CAR_IDS.filter((id) => id !== loadout.car).map((id, i) => this.makeBot(id, personalities[i]));
       world.cars.push(player, ...bots);
@@ -198,6 +200,10 @@ export class RaceSession {
     this.updateDemoFocus(frameDt);
     this.cam.rear = !this.isDemo && !this.finished && this.focus === this.world.player && !!this.input?.rearView;
     this.hud?.setRearView(this.cam.rear && this.focus.alive);
+    const player = this.world.player;
+    if (this.hud && player && !this.finished) {
+      this.threatBeep = warnThreat(this.world.gfx!, this.hud, player, this.world.combat.threatTo(player), this.threatBeep, frameDt);
+    }
     this.cam.update(frameDt, this.focus, fx);
     this.world.gfx!.follow(this.focus.x, this.focus.y);
     this.smokeTimer -= frameDt;
@@ -256,7 +262,7 @@ export class RaceSession {
   private updateCrosshair(): void {
     const p = this.world.player;
     if (!this.crosshair || !p) return;
-    const locked = p.alive && this.world.combat.findTargetInCone(p, p.aimAngle, 0.12, 900) !== null;
+    const locked = p.alive && this.world.combat.findTargetInCone(p, p.aimAngle, 0.12, 1200) !== null;
     this.crosshair.classList.toggle('lock', locked);
     this.input?.touch?.setLock(locked);
   }

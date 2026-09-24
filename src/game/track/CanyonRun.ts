@@ -88,5 +88,7 @@ export const CANYON_RUN: TrackDef = {
     { kind: 'energy', x: 2240, y: 3300 },
     { kind: 'boost', x: 2990, y: 2500 },
     { kind: 'energy', x: 1020, y: 5300 },
+    { kind: 'hunter', x: 5300, y: 6255 },
+    { kind: 'hunter', x: 1880, y: 1560 },
   ],
 };

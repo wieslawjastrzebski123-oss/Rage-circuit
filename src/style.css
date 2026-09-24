@@ -1238,6 +1238,65 @@ code {
   display: block;
 }
 
+/* missile lock: a pulsing banner and a red glow on the edge the missile is coming from */
+.hud-threat {
+  position: absolute;
+  top: 46px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0.25em;
+  color: #ff3048;
+  text-shadow: 0 0 14px rgba(255, 30, 60, 0.9);
+  display: none;
+  animation: blink 0.28s infinite alternate;
+}
+
+.hud-threat.show {
+  display: block;
+}
+
+.hud-threat-edge {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: none;
+  background: radial-gradient(circle at var(--tx, 50%) var(--ty, 0%), rgba(255, 20, 50, var(--a, 0.4)) 0%, rgba(255, 20, 50, 0) 38%);
+  animation: threat-pulse 0.5s infinite alternate;
+}
+
+.hud-threat-edge.show {
+  display: block;
+}
+
+@keyframes threat-pulse {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+/* drafting another car */
+.hud-slip {
+  position: absolute;
+  bottom: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--cyan);
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.7);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.hud-slip.show {
+  opacity: 1;
+}
+
 .hud-respawn {
   position: absolute;
   top: 48%;

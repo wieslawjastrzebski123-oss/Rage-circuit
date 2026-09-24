@@ -3,7 +3,9 @@ import type { WeaponStats } from '../data/weapons';
 import { textures } from '../render/Textures';
 import type { Car } from './Car';
 
-export type ProjectileKind = 'bullet' | 'shell' | 'rocket';
+export type ProjectileKind = 'bullet' | 'shell' | 'rocket' | 'rail' | 'swarm' | 'hunter';
+/** kinds that steer towards a target and explode */
+export const HOMING: ReadonlySet<ProjectileKind> = new Set(['rocket', 'swarm', 'hunter']);
 
 const HEIGHT = 18;
 
@@ -12,17 +14,27 @@ function shared<T extends THREE.BufferGeometry | THREE.Material>(o: T): T {
   return o;
 }
 
-const GEO = {
+const GEO: Record<ProjectileKind, THREE.BufferGeometry> = {
   bullet: shared(new THREE.BoxGeometry(16, 1.6, 1.6)),
   shell: shared(new THREE.SphereGeometry(3.4, 10, 8)),
   rocket: shared(new THREE.CylinderGeometry(2.2, 2.2, 16, 8).rotateZ(Math.PI / 2)),
+  // a long streak: at 5200 units/s the slug crosses ~90 units per frame
+  rail: shared(new THREE.BoxGeometry(90, 1.4, 1.4)),
+  swarm: shared(new THREE.CylinderGeometry(1.5, 1.5, 10, 6).rotateZ(Math.PI / 2)),
+  hunter: shared(new THREE.CylinderGeometry(3.2, 3.2, 22, 8).rotateZ(Math.PI / 2)),
 };
-const MAT = {
+const MAT: Record<ProjectileKind, THREE.Material> = {
   bullet: shared(new THREE.MeshBasicMaterial({ color: 0xfff0b0 })),
   shell: shared(new THREE.MeshBasicMaterial({ color: 0xffb060 })),
   rocket: shared(new THREE.MeshStandardMaterial({ color: 0xd0d4da, roughness: 0.4, metalness: 0.6 })),
+  rail: shared(new THREE.MeshBasicMaterial({ color: new THREE.Color(0x9ff6ff).multiplyScalar(8) })),
+  swarm: shared(new THREE.MeshStandardMaterial({ color: 0xe6e8ec, roughness: 0.4, metalness: 0.6 })),
+  hunter: shared(new THREE.MeshStandardMaterial({ color: 0x3a1020, emissive: 0xff1060, emissiveIntensity: 0.8, roughness: 0.3, metalness: 0.6 })),
 };
-const GLOW_COLOR: Record<ProjectileKind, number> = { bullet: 0xffd070, shell: 0xff8a30, rocket: 0xff5030 };
+const GLOW_COLOR: Record<ProjectileKind, number> = { bullet: 0xffd070, shell: 0xff8a30, rocket: 0xff5030, rail: 0x60e8ff, swarm: 0xffb040, hunter: 0xff1a6a };
+const GLOW_SIZE: Record<ProjectileKind, number> = { bullet: 14, shell: 30, rocket: 34, rail: 26, swarm: 22, hunter: 60 };
+/** height above the road: the hunter flies high, over the walls */
+const FLY_HEIGHT: Record<ProjectileKind, number> = { bullet: HEIGHT, shell: HEIGHT, rocket: HEIGHT, rail: HEIGHT, swarm: HEIGHT, hunter: 44 };
 
 /** Pooled projectile – re-used instead of created/destroyed per shot. */
 export class Projectile {
@@ -42,6 +54,8 @@ export class Projectile {
   trailAcc = 0;
   /** damage multiplier (Overcharge) */
   dmgMul = 1;
+  /** cars a piercing slug has already gone through */
+  readonly hit = new Set<Car>();
   // visuals are absent when simulating headless
   private mesh: THREE.Mesh | null = null;
   private glow: THREE.Sprite | null = null;
@@ -74,14 +88,14 @@ export class Projectile {
     this.ttl = stats.ttl;
     this.age = 0;
     this.trailAcc = 0;
+    this.hit.clear();
     if (!this.mesh || !this.glow) return;
     this.mesh.geometry = GEO[kind];
     this.mesh.material = MAT[kind];
     this.mesh.visible = true;
     const g = this.glow;
     g.material.color.setHex(GLOW_COLOR[kind]);
-    const s = kind === 'bullet' ? 14 : kind === 'shell' ? 30 : 34;
-    g.scale.set(s, s, 1);
+    g.scale.set(GLOW_SIZE[kind], GLOW_SIZE[kind], 1);
     g.visible = true;
     this.sync();
   }
@@ -94,8 +108,7 @@ export class Projectile {
       this.mesh.geometry = GEO[kind];
       this.mesh.material = MAT[kind];
       this.glow.material.color.setHex(GLOW_COLOR[kind]);
-      const s = kind === 'bullet' ? 14 : kind === 'shell' ? 30 : 34;
-      this.glow.scale.set(s, s, 1);
+      this.glow.scale.set(GLOW_SIZE[kind], GLOW_SIZE[kind], 1);
     }
     this.mesh.visible = this.glow.visible = true;
     this.x = x;
@@ -107,9 +120,10 @@ export class Projectile {
 
   sync(): void {
     if (!this.mesh || !this.glow) return;
-    this.mesh.position.set(this.x, HEIGHT, this.y);
+    const h = FLY_HEIGHT[this.kind];
+    this.mesh.position.set(this.x, h, this.y);
     this.mesh.rotation.y = -Math.atan2(this.vy, this.vx);
-    this.glow.position.set(this.x, HEIGHT, this.y);
+    this.glow.position.set(this.x, h, this.y);
   }
 
   kill(): void {

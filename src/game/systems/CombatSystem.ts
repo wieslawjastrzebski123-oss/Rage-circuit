@@ -2,7 +2,8 @@ import { RESPAWN_DELAY } from '../constants';
 import type { WeaponStats } from '../data/weapons';
 import type { Car } from '../entities/Car';
 import { Mine, MINE_TRIGGER_RADIUS } from '../entities/Mine';
-import { Projectile, type ProjectileKind } from '../entities/Projectile';
+import { HOMING, Projectile, type ProjectileKind } from '../entities/Projectile';
+import { WEAPONS } from '../data/weapons';
 import { SHIELD_FACTOR } from '../abilities/Shield';
 import { angleDiff, clamp, dist2, segmentCircleHit } from '../utils/math';
 import type { World } from './World';
@@ -12,14 +13,29 @@ export type DamageKind = 'bullet' | 'shell' | 'explosion' | 'ram' | 'wall' | 'st
 const MAX_PROJECTILES = 220;
 const MAX_MINES = 24;
 const MINES_PER_OWNER = 4;
-const ROCKET_TURN_RATE = 2.3; // rad/s – limited so hard turns can dodge
-const ROCKET_MAX_SPEED = 860;
+/**
+ * Homing behaviour per missile: turn rate (rad/s – limited so hard turns can dodge), top speed,
+ * acceleration, and how far off the nose the target may get before the lock breaks.
+ * The hunter never loses its lock: it re-acquires the leader and flies over walls.
+ */
+const HOMING_SPEC: Record<'rocket' | 'swarm' | 'hunter', { turn: number; max: number; accel: number; breakAt: number }> = {
+  rocket: { turn: 2.3, max: 860, accel: 500, breakAt: 1.9 },
+  swarm: { turn: 3.6, max: 920, accel: 700, breakAt: 2.3 },
+  hunter: { turn: 3.2, max: 980, accel: 320, breakAt: Infinity },
+};
+/** extra reward for wrecking the race leader */
+const BOUNTY_ENERGY = 30;
+/** how long an oil slick keeps a car sliding after it leaves the puddle */
+const OIL_SLIDE = 1.0;
 const KILL_BOOST_REWARD = 45;
 const KILL_ENERGY_REWARD = 20;
 const ASSIST_WINDOW = 4; // seconds a hit counts for kill credit
 /** kills in a row without dying: name shown on screen (index = streak) */
 const STREAK_NAMES = ['', '', 'DOUBLE KILL', 'TRIPLE KILL', 'RAMPAGE', 'UNSTOPPABLE'];
 const STREAK_ENERGY_REWARD = 15;
+
+/** Network order of projectile kinds (the snapshot sends the index). */
+export const PROJECTILE_KINDS: ProjectileKind[] = ['bullet', 'shell', 'rocket', 'rail', 'swarm', 'hunter'];
 
 /** Projectiles, mines, damage, explosions and kill rewards. */
 export class CombatSystem {
@@ -98,23 +114,33 @@ export class CombatSystem {
     for (const p of this.projectiles) {
       if (!p.active) continue;
       p.age += dt;
+      const homing = HOMING.has(p.kind);
       if (p.age >= p.ttl) {
-        if (p.kind === 'rocket') this.rocketExplode(p);
+        if (homing) this.rocketExplode(p);
         else p.kill();
         continue;
       }
-      if (p.kind === 'rocket') this.steerRocket(p, dt);
+      if (homing) this.steerRocket(p, dt);
       const x0 = p.x;
       const y0 = p.y;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
+
+      // the hunter flies high over everything and only comes down on its quarry
+      if (p.kind === 'hunter') {
+        const t = p.target;
+        if (t && Math.hypot(t.x - p.x, t.y - p.y) < t.radius + 14) this.rocketExplode(p, t);
+        else this.missileTrail(p, dt);
+        if (p.active) p.sync();
+        continue;
+      }
 
       // cars
       let hitCar: Car | null = null;
       let bestT = 2;
       const pad = p.kind === 'bullet' ? 3 : 6;
       for (const c of w.cars) {
-        if (c === p.owner || !c.alive || c.ghostTime > 0) continue;
+        if (c === p.owner || !c.alive || c.ghostTime > 0 || p.hit.has(c)) continue;
         const t = segmentCircleHit(x0, y0, p.x, p.y, c.x, c.y, c.radius + pad);
         if (t >= 0 && t < bestT) {
           bestT = t;
@@ -122,18 +148,23 @@ export class CombatSystem {
         }
       }
       if (hitCar) {
-        p.x = x0 + (p.x - x0) * bestT;
-        p.y = y0 + (p.y - y0) * bestT;
-        this.projectileHitCar(p, hitCar);
-        continue;
+        if (p.stats.pierce) {
+          // straight through: hurt it and keep going
+          this.projectileHitCar(p, hitCar);
+        } else {
+          p.x = x0 + (p.x - x0) * bestT;
+          p.y = y0 + (p.y - y0) * bestT;
+          this.projectileHitCar(p, hitCar);
+          continue;
+        }
       }
-      // mines can be shot
+      // mines can be shot (oil slicks can't)
       let mineHit = false;
       for (const m of this.mines) {
-        if (!m.active || m.owner === p.owner) continue;
+        if (!m.active || m.owner === p.owner || m.kind === 'oil') continue;
         if (segmentCircleHit(x0, y0, p.x, p.y, m.x, m.y, 14) >= 0) {
           this.detonateMine(m, p.owner);
-          p.kind === 'rocket' ? this.rocketExplode(p) : p.kill();
+          homing ? this.rocketExplode(p) : p.kill();
           mineHit = true;
           break;
         }
@@ -147,29 +178,23 @@ export class CombatSystem {
           const len = Math.hypot(p.vx, p.vy) || 1;
           w.collisions.damageBarrel(prop, p.stats.damage, p.owner, (p.vx / len) * k, (p.vy / len) * k);
         }
-        if (p.kind === 'rocket') this.rocketExplode(p);
+        if (homing) this.rocketExplode(p);
         else {
-          w.effects.impact(p.x, p.y, Math.atan2(p.vy, p.vx), 0xffc860, p.kind === 'shell');
+          w.effects.impact(p.x, p.y, Math.atan2(p.vy, p.vx), p.kind === 'rail' ? 0x9ff6ff : 0xffc860, p.kind !== 'bullet');
           p.kill();
         }
         continue;
       }
       // walls
       if (!w.track.isDrivable(p.x, p.y)) {
-        if (p.kind === 'rocket') this.rocketExplode(p);
+        if (homing) this.rocketExplode(p);
         else {
-          w.effects.impact(p.x, p.y, Math.atan2(p.vy, p.vx), 0xffc860, p.kind === 'shell');
+          w.effects.impact(p.x, p.y, Math.atan2(p.vy, p.vx), p.kind === 'rail' ? 0x9ff6ff : 0xffc860, p.kind !== 'bullet');
           p.kill();
         }
         continue;
       }
-      if (p.kind === 'rocket') {
-        p.trailAcc += dt;
-        if (p.trailAcc > 0.02) {
-          p.trailAcc = 0;
-          w.effects.boostTrail(p.x - Math.cos(p.angle) * 12, p.y - Math.sin(p.angle) * 12, 0xff8040);
-        }
-      }
+      if (homing) this.missileTrail(p, dt);
       p.sync();
     }
 
@@ -191,7 +216,12 @@ export class CombatSystem {
         m.y -= m.vy * dt;
         m.vx = m.vy = 0;
       }
-      if (m.armed) {
+      if (m.kind === 'oil') {
+        for (const c of w.cars) {
+          if (c === m.owner || !c.alive || c.z > 6) continue;
+          if (dist2(c.x, c.y, m.x, m.y) < (m.radius + c.radius * 0.4) ** 2) this.oil(c);
+        }
+      } else if (m.armed) {
         for (const c of w.cars) {
           // a car in the air flies over it
           if (c === m.owner || !c.alive || c.ghostTime > 0 || c.z > 6) continue;
@@ -206,17 +236,64 @@ export class CombatSystem {
   }
 
   private steerRocket(p: Projectile, dt: number): void {
-    p.speed = Math.min(ROCKET_MAX_SPEED, p.speed + 500 * dt);
+    const spec = HOMING_SPEC[p.kind as keyof typeof HOMING_SPEC];
+    p.speed = Math.min(spec.max, p.speed + spec.accel * dt);
+    // a hunter whose quarry is gone (or has finished) goes after whoever leads now
+    if (p.kind === 'hunter' && (!p.target || !p.target.alive || p.target.race.finished)) p.target = this.world.leader;
     const t = p.target;
     if (t && t.alive && !t.isGhost) {
       const desired = Math.atan2(t.y - p.y, t.x - p.x);
       const diff = angleDiff(p.angle, desired);
       // lose lock if the target gets behind the rocket
-      if (Math.abs(diff) > 1.9) p.target = null;
-      else p.angle += clamp(diff, -ROCKET_TURN_RATE * dt, ROCKET_TURN_RATE * dt);
+      if (Math.abs(diff) > spec.breakAt) p.target = null;
+      else p.angle += clamp(diff, -spec.turn * dt, spec.turn * dt);
     }
     p.vx = Math.cos(p.angle) * p.speed;
     p.vy = Math.sin(p.angle) * p.speed;
+  }
+
+  private missileTrail(p: Projectile, dt: number): void {
+    p.trailAcc += dt;
+    if (p.trailAcc > (p.kind === 'swarm' ? 0.035 : 0.02)) {
+      p.trailAcc = 0;
+      const col = p.kind === 'hunter' ? 0xff2a7a : 0xff8040;
+      this.world.effects.boostTrail(p.x - Math.cos(p.angle) * 12, p.y - Math.sin(p.angle) * 12, col);
+    }
+  }
+
+  /** A car drives into oil: it keeps sliding for a moment and gets a spin kick on the way in. */
+  private oil(c: Car): void {
+    const w = this.world;
+    if (c.oilTime <= 0) {
+      c.angVel += (Math.random() < 0.5 ? -1 : 1) * (2.2 + Math.random() * 1.6);
+      c.endDrift(false);
+      w.view(c)?.hud?.flash('OIL!', '#c8a0ff', 700);
+      w.audio.wallHit(c, 150);
+    }
+    c.oilTime = OIL_SLIDE;
+  }
+
+  /** Nearest homing missile locked onto `car` (for the warning), or null. */
+  threatTo(car: Car): Projectile | null {
+    let best: Projectile | null = null;
+    let bd = Infinity;
+    for (const p of this.projectiles) {
+      if (!p.active || p.target !== car || !HOMING.has(p.kind)) continue;
+      const d = (p.x - car.x) ** 2 + (p.y - car.y) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  /** The HUNTER pickup: a heavy missile from `from` that goes after `target` (the leader). */
+  launchHunter(from: Car, target: Car): void {
+    const a = Math.atan2(target.y - from.y, target.x - from.x);
+    const p = this.spawnProjectile('hunter', from, from.x, from.y, a, WEAPONS.hunter.projectileSpeed, WEAPONS.hunter);
+    if (p) p.target = target;
+    this.world.audio.shot('hunter', from);
   }
 
   private projectileHitCar(p: Projectile, c: Car): void {
@@ -224,8 +301,19 @@ export class CombatSystem {
     const len = Math.hypot(p.vx, p.vy) || 1;
     const dirX = p.vx / len;
     const dirY = p.vy / len;
-    if (p.kind === 'rocket') {
+    if (HOMING.has(p.kind)) {
       this.rocketExplode(p, c);
+      return;
+    }
+    if (p.stats.pierce) {
+      p.hit.add(c);
+      c.vx += (dirX * p.stats.knockback) / c.mass;
+      c.vy += (dirY * p.stats.knockback) / c.mass;
+      c.angVel += (Math.random() - 0.5) * 2;
+      this.applyDamage(c, p.stats.damage * p.dmgMul, p.owner, 'shell');
+      w.effects.impact(c.x, c.y, Math.atan2(dirY, dirX), 0x9ff6ff, true);
+      w.audio.hit(c, true);
+      if (p.owner.isPlayer || c.isPlayer) w.effects.freeze(40);
       return;
     }
     const heavy = p.kind === 'shell';
@@ -246,7 +334,8 @@ export class CombatSystem {
   private rocketExplode(p: Projectile, direct?: Car): void {
     const st = p.stats;
     if (direct) this.applyDamage(direct, st.damage * 0.35, p.owner, 'explosion');
-    this.explode(p.x, p.y, st.splash, direct ? st.damage * 0.65 : st.damage, p.owner, p.owner, 0.9, st.knockback);
+    const size = p.kind === 'swarm' ? 0.55 : p.kind === 'hunter' ? 1.4 : 0.9;
+    this.explode(p.x, p.y, st.splash, direct ? st.damage * 0.65 : st.damage, p.owner, p.owner, size, st.knockback);
     p.kill();
   }
 
@@ -287,7 +376,7 @@ export class CombatSystem {
       w.collisions.damageBarrel(b, 20 * f + 1, source, ((b.x - x) / d) * 500 * f, ((b.y - y) / d) * 500 * f);
     }
     for (const m of this.mines) {
-      if (m.active && dist2(m.x, m.y, x, y) < (radius * 0.6) ** 2) this.detonateMine(m, source ?? m.owner);
+      if (m.active && m.kind === 'mine' && dist2(m.x, m.y, x, y) < (radius * 0.6) ** 2) this.detonateMine(m, source ?? m.owner);
     }
   }
 
@@ -334,6 +423,7 @@ export class CombatSystem {
 
     let killer = source && source !== target ? source : null;
     if (!killer && target.lastHitBy && w.time - target.lastHitTime < ASSIST_WINDOW) killer = target.lastHitBy;
+    const bounty = killer !== null && w.leader === target;
 
     w.effects.explosion(target.x, target.y, 1.5);
     w.effects.shakeAt(target.x, target.y, 0.02, 380);
@@ -360,6 +450,13 @@ export class CombatSystem {
         kv?.hud?.announce(`DESTROYED ${target.name}`, '#ffd23f');
         kv?.audio.kill();
       }
+      // bounty on the race leader: a full tank and extra energy for whoever brings them down
+      if (bounty) {
+        killer.boostMeter = 100;
+        killer.energy = Math.min(killer.maxEnergy, killer.energy + BOUNTY_ENERGY);
+        kv?.hud?.flash('👑 LEADER DOWN · BOUNTY: BOOST FULL', '#ffd23f', 2000);
+        w.hud?.feed(`👑 ${killer.name} took down the leader`);
+      }
     }
     tv?.hud?.announce(killer ? `WRECKED BY ${killer.name}` : 'WRECKED', '#ff5a5a');
     // everyone sees the kill feed; each HUD shows its own name as YOU
@@ -368,21 +465,20 @@ export class CombatSystem {
   }
 
   // ------------------------------------------------------------------ network
-  /** [kind(0 bullet, 1 shell, 2 rocket), x, y, vx, vy] for every live projectile */
+  /** [kind (index in PROJECTILE_KINDS), x, y, vx, vy, targetCarId or 0] for every live projectile */
   snapshotProjectiles(): number[][] {
-    const kinds = { bullet: 0, shell: 1, rocket: 2 } as const;
     const out: number[][] = [];
     for (const p of this.projectiles) {
-      if (p.active) out.push([kinds[p.kind], Math.round(p.x), Math.round(p.y), Math.round(p.vx), Math.round(p.vy)]);
+      if (p.active) out.push([PROJECTILE_KINDS.indexOf(p.kind), Math.round(p.x), Math.round(p.y), Math.round(p.vx), Math.round(p.vy), p.target?.id ?? 0]);
     }
     return out;
   }
 
-  /** [x, y, age, armed, ownerCarId] for every live mine */
+  /** [x, y, age, armed, ownerCarId, kind (0 mine, 1 oil)] for every live mine / slick */
   snapshotMines(): number[][] {
     const out: number[][] = [];
     for (const m of this.mines) {
-      if (m.active) out.push([Math.round(m.x), Math.round(m.y), Math.round(m.age * 100) / 100, m.armed ? 1 : 0, m.owner.id]);
+      if (m.active) out.push([Math.round(m.x), Math.round(m.y), Math.round(m.age * 100) / 100, m.armed ? 1 : 0, m.owner.id, m.kind === 'oil' ? 1 : 0]);
     }
     return out;
   }

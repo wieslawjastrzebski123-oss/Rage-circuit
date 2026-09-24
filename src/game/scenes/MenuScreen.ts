@@ -85,6 +85,7 @@ export class MenuScreen {
       ['SKILL', 'Car ability (Overcharge / Shield / Blink / EMP)'],
       ['REAR', 'Hold to look back – the turret targets the rival behind you and fires automatically'],
       ['RAMPS', 'Hit them fast: hang time fills Boost, you sail over mines and barrels, and landing on a rival crushes it'],
+      ['CATCHING UP', 'Tuck in right behind a rival for a SLIPSTREAM speed boost. Far behind the leader, your car gets quicker. Red HUNTER pickups fire a missile at the leader (👑); wrecking the leader earns a bounty'],
       ['↺', 'Reset to last checkpoint (2 s penalty)'],
       ['II', 'Pause'],
     ] : [
@@ -98,6 +99,7 @@ export class MenuScreen {
       ['C (hold)', 'Rear view – look back, aim with the mouse and shoot the cars behind you'],
       ['SHIFT', 'Car ability (Overcharge / Shield / Blink / EMP)'],
       ['RAMPS', 'Hit them fast: hang time fills Boost, you sail over mines and barrels, and landing on a rival crushes it'],
+      ['CATCHING UP', 'Tuck in right behind a rival for a SLIPSTREAM speed boost. Far behind the leader, your car gets quicker. Red HUNTER pickups fire a missile at the leader (👑); wrecking the leader earns a bounty'],
       ['R', 'Reset to last checkpoint (2 s penalty)'],
       ['ESC', 'Pause'],
     ];

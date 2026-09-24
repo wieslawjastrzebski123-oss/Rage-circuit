@@ -38,6 +38,10 @@ export const GRAVITY = 340;
 /** fastest the ground can throw a car upwards (a ramp's lip at top speed) */
 const MAX_LAUNCH = 420;
 const BOOST_FROM_AIR = 14;
+/** slipstream at full strength: +8% top speed, +30% acceleration, boost meter charging */
+const SLIP_SPEED = 0.08;
+const SLIP_ACCEL = 0.3;
+const BOOST_FROM_SLIP = 9;
 /** landing on another car from at least this far down (units/s) crushes it */
 const STOMP_SPEED = 60;
 
@@ -106,6 +110,8 @@ export class Car {
 
   // status effects (seconds remaining)
   overchargeTime = 0;
+  /** sliding on an oil slick */
+  oilTime = 0;
   shieldTime = 0;
   empTime = 0;
   ghostTime = 0;
@@ -120,8 +126,13 @@ export class Car {
   alive = true;
   respawnTimer = 0;
   stuckTime = 0;
-  /** tiny acceleration bonus when far behind (set by RaceManager) */
+  /** catch-up multiplier on acceleration when far behind the leader (set by RaceManager);
+   *  half of the bonus also raises the top speed */
   rubberBand = 1;
+  /** 0..1 – how much this car is in another's slipstream (set by RaceManager) */
+  slip = 0;
+  /** first place right now (crown over the car) */
+  isLeader = false;
   /** false for the client-side predicted car: weapons are fired by the server only */
   simCombat = true;
 
@@ -254,6 +265,7 @@ export class Car {
     this.ghostTime = Math.max(0, this.ghostTime - dt);
     this.frozenTime = Math.max(0, this.frozenTime - dt);
     this.hitFlash = Math.max(0, this.hitFlash - dt);
+    this.oilTime = Math.max(0, this.oilTime - dt);
     this.driftBoostTime = Math.max(0, this.driftBoostTime - dt);
 
     if (!this.alive) {
@@ -306,8 +318,11 @@ export class Car {
     if (this.boosting) bp = Math.max(bp, 0.95);
     if (this.empTime > 0) bp *= 0.4;
     this.boostPower = bp;
-    const speedCap = st.maxSpeed * (1 + 0.3 * bp);
-    const accel = st.acceleration * (1 + 1.3 * bp) * this.rubberBand;
+    // catch-up: far behind the leader, or tucked into someone's slipstream, the car is quicker
+    const catchUp = 1 + (this.rubberBand - 1) * 0.5 + SLIP_SPEED * this.slip;
+    const speedCap = st.maxSpeed * (1 + 0.3 * bp) * catchUp;
+    const accel = st.acceleration * (1 + 1.3 * bp) * this.rubberBand * (1 + SLIP_ACCEL * this.slip);
+    this.boostMeter = Math.min(100, this.boostMeter + BOOST_FROM_SLIP * this.slip * dt);
 
     // -------- in the air: ballistic, no traction – just a little yaw control to line up the landing
     if (this.airborne) {
@@ -354,6 +369,8 @@ export class Car {
     } else {
       targetAng = steer * st.handling * lowSpeed * highSpeed * (vF < 0 ? -1 : 1);
     }
+    // on oil the wheels barely answer
+    if (this.oilTime > 0) targetAng *= 0.45;
     this.angVel = damp(this.angVel, targetAng, this.drifting ? 7 : 11, dt);
     const dYaw = this.angVel * dt;
     this.heading = wrapAngle(this.heading + dYaw);
@@ -396,6 +413,7 @@ export class Car {
     let grip = st.grip * (1 - 0.3 * clamp((absF - 380) / 300, 0, 1));
     if (this.drifting) grip = st.driftGrip;
     else if (throttle < 0 && vF > 200) grip *= 0.8;
+    if (this.oilTime > 0) grip *= 0.15;
     // sideways speed isn't lost entirely – part of it is redirected forward (arcade feel)
     const lost = vR * (1 - Math.exp(-grip * dt));
     vR -= lost;
