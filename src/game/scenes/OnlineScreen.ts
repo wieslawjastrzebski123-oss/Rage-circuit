@@ -184,7 +184,23 @@ export class OnlineScreen {
         const img = h('img', '', undefined, card);
         img.src = carPreview(id);
         h('b', '', c.name, card);
-        h('span', '', ABILITIES[c.ability].name, card);
+        h('em', '', c.archetype, card);
+        // the same ratings as the garage cards, in a compact form
+        const stats = h('div', 'mini-stats', undefined, card);
+        for (const [label, v] of [
+          ['SPD', c.rating.speed],
+          ['ACC', c.rating.acceleration],
+          ['HDL', c.rating.handling],
+          ['ARM', c.rating.armor],
+        ] as [string, number][]) {
+          const row = h('div', 'mini-stat', undefined, stats);
+          h('span', '', label, row);
+          const bars = h('div', 'bars', undefined, row);
+          for (let i = 1; i <= 10; i++) h('i', i <= v ? 'on' : '', undefined, bars);
+        }
+        const ab = ABILITIES[c.ability];
+        h('span', 'mini-ability', ab.name, card);
+        card.title = `${c.name} – ${c.archetype}\n${ab.name}: ${ab.description}\n${c.blurb}`;
         card.addEventListener('click', () => this.sendLoadout({ car: id }));
       }
       const weapons = (label: string, ids: WeaponId[], key: 'primary' | 'secondary') => {
@@ -192,6 +208,7 @@ export class OnlineScreen {
         h('span', '', label, row);
         for (const w of ids) {
           const b = h('button', `lap-opt ${me[key] === w ? 'selected' : ''}`, WEAPONS[w].name, row);
+          b.title = WEAPONS[w].description;
           b.addEventListener('click', () => this.sendLoadout({ [key]: w }));
         }
       };
