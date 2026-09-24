@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 echo "== uploading sources"
 $SSH "$TARGET" 'sudo mkdir -p /opt/rage-circuit && sudo chown -R $USER:$USER /opt/rage-circuit'
 rsync -az --delete -e "$SSH" \
-  --exclude node_modules --exclude dist --exclude .git --exclude .claude \
+  --exclude node_modules --exclude dist --exclude .git --exclude .claude --exclude art/.cache \
   ./ "$TARGET:/opt/rage-circuit/"
 
 echo "== installing, building and (re)starting on the server"
